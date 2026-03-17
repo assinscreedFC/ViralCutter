@@ -1,5 +1,5 @@
 {
-    "selected_api": "gemini",
+    "selected_api": "pleiade",
     "gemini": {
         "api_key": "",
         "model": "gemini-2.5-flash-lite-preview-09-2025",
@@ -8,5 +8,8 @@
     "g4f": {
         "model": "gpt-4o-mini",
         "chunk_size": 2000
+    },
+    "pleiade": {
+        "chunk_size": 12000
     }
 }

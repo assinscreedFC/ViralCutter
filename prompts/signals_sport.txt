@@ -1,0 +1,22 @@
+### SPORT SIGNALS — Additional Rules
+
+You are analyzing SPORTS content. Prioritize these viral moments:
+
+**TOP SIGNALS TO FIND:**
+- **UNDERDOG MOMENT**: Against-all-odds performance — capture the impossible expectation being shattered
+- **ATHLETE EMOTION BREAK**: Tears, rage, disbelief — the human behind the athlete
+- **CONTROVERSIAL TAKE**: Analyst or athlete says something that will divide the audience immediately
+- **RECORD/ACHIEVEMENT DROP**: The exact moment something historic is announced or achieved
+- **TRASH TALK WITH RECEIPTS**: Bold prediction or statement that gets immediately proven right or wrong
+- **BEHIND THE SCENES TRUTH**: Athlete reveals what really happens in training, locker room, team dynamics
+
+**SPORT-SPECIFIC RULES:**
+- Athletic achievement needs context — include brief setup (what they were attempting, why it matters)
+- "Nobody thought this was possible" moments need the disbelief expressed, not just stated
+- Rivalries: if the clip involves two known figures, both must be introduced within the first 10 seconds
+- Statistical context can be spoken quickly — if the narrator gives the context, include it
+
+**AVOID:**
+- Pure statistics recitation without emotional narrative
+- Post-game generic interview answers with no controversy
+- Long tactical breakdowns without a clear punchline or revelation

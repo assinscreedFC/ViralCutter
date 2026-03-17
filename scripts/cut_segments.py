@@ -120,7 +120,9 @@ def cut(segments, project_folder="tmp", skip_video=False):
                 if video_codec == "h264_nvenc":
                     command.extend([
                         "-preset", "p1",
-                        "-b:v", "5M",
+                        "-rc:v", "vbr",
+                        "-cq", "19",
+                        "-maxrate", "8M",
                     ])
                 else:
                     command.extend([

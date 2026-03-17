@@ -2,6 +2,13 @@ import json
 import re
 import os
 
+# Couleurs ASS (format &HBBGGRR&) pour les power words par catégorie
+POWER_WORD_COLORS = {
+    "importance": "&H00E6FF&",   # Jaune (#FFE600 -> BGR)
+    "success": "&H88FF00&",      # Vert (#00FF88 -> BGR)
+    "danger": "&H4444FF&",       # Rouge (#FF4444 -> BGR)
+}
+
 def format_time_ass(time_seconds):
     hours = int(time_seconds // 3600)
     minutes = int((time_seconds % 3600) // 60)
@@ -9,12 +16,13 @@ def format_time_ass(time_seconds):
     centiseconds = int((time_seconds % 1) * 100)
     return f"{hours:01}:{minutes:02}:{seconds:02}.{centiseconds:02}"
 
-def generate_ass_from_file(input_path, output_path, project_folder, 
-                           base_color, base_size, highlight_size, highlight_color, 
-                           words_per_block, gap_limit, mode, vertical_position, alignment, 
-                           font, outline_color, shadow_color, bold, italic, underline, 
+
+def generate_ass_from_file(input_path, output_path, project_folder,
+                           base_color, base_size, highlight_size, highlight_color,
+                           words_per_block, gap_limit, mode, vertical_position, alignment,
+                           font, outline_color, shadow_color, bold, italic, underline,
                             strikeout, border_style, outline_thickness, shadow_size, uppercase,
-                            face_modes={}, remove_punctuation=True):
+                            face_modes=None, remove_punctuation=True, power_words_map=None):
     """
     Generates a single ASS file from a JSON input.
     """
@@ -64,7 +72,8 @@ def generate_ass_from_file(input_path, output_path, project_folder,
     
     current_alignment = alignment
     current_vertical_position = vertical_position
-    
+    if face_modes is None:
+        face_modes = {}
     mode_face = face_modes.get(key)
     if mode_face == "2" and not timeline_data: # Only use static if no timeline
         current_alignment = 5 
@@ -164,12 +173,18 @@ def generate_ass_from_file(input_path, output_path, project_folder,
                     if mode == "highlight":
                         for k, word_data in enumerate(block):
                             word = word_data['word']
+                            # Vérifier si c'est un power word
+                            pw_color = None
+                            if power_words_map:
+                                category = power_words_map.get(word.lower().strip())
+                                if category:
+                                    pw_color = POWER_WORD_COLORS.get(category)
                             if k == j:
-                                line += f"{{\\fs{highlight_size}\\c{highlight_color}}}{word} "
+                                color = pw_color or highlight_color
+                                line += f"{{\\fs{highlight_size}\\c{color}}}{word} "
                             else:
-                                line += f"{{\\fs{base_size}\\c{base_color}}}{word} "
-                        line = line.strip()
-
+                                color = pw_color or base_color
+                                line += f"{{\\fs{base_size}\\c{color}}}{word} "
                         line = line.strip()
 
                     elif mode == "no_highlight" or mode == "sem_higlight": 
@@ -241,23 +256,41 @@ def adjust(base_color, base_size, highlight_size, highlight_color, words_per_blo
             print(f"Could not load face modes: {e}")
 
     # Process all JSON files in input directory
-    # Process all JSON files in input directory
     if not os.path.exists(input_dir):
         print(f"[ERROR] Subtitle folder missing: {input_dir}")
         raise FileNotFoundError(f"Subtitle folder missing at {input_dir}. Ensure transcription completed successfully.")
 
-    for filename in os.listdir(input_dir):
+    # Pre-load viral_segments.txt once to avoid N reads per segment
+    _all_segments = []
+    _vs_path = os.path.join(project_folder, "viral_segments.txt")
+    if os.path.exists(_vs_path):
+        try:
+            with open(_vs_path, 'r', encoding='utf-8') as f:
+                _all_segments = json.load(f).get("segments", [])
+        except Exception:
+            pass
+
+    for file_idx, filename in enumerate(sorted(os.listdir(input_dir))):
         if filename.endswith(".json"):
             input_path = os.path.join(input_dir, filename)
             output_filename = os.path.splitext(filename)[0] + ".ass"
             output_path = os.path.join(output_dir, output_filename)
-            
-            generate_ass_from_file(input_path, output_path, project_folder, 
-                           base_color, base_size, highlight_size, highlight_color, 
-                           words_per_block, gap_limit, mode, vertical_position, alignment, 
-                           font, outline_color, shadow_color, bold, italic, underline, 
+
+            # Extraire les power words pour ce segment depuis les données pré-chargées
+            match_idx = re.search(r'^(\d{3})_', filename)
+            seg_idx = int(match_idx.group(1)) if match_idx else file_idx
+            if seg_idx < len(_all_segments):
+                pw_list = _all_segments[seg_idx].get("power_words", [])
+                power_words_map = {pw["word"].lower(): pw["category"] for pw in pw_list if "word" in pw and "category" in pw}
+            else:
+                power_words_map = {}
+
+            generate_ass_from_file(input_path, output_path, project_folder,
+                           base_color, base_size, highlight_size, highlight_color,
+                           words_per_block, gap_limit, mode, vertical_position, alignment,
+                           font, outline_color, shadow_color, bold, italic, underline,
                            strikeout, border_style, outline_thickness, shadow_size, uppercase,
-                           face_modes, remove_punctuation)
+                           face_modes, remove_punctuation, power_words_map)
 
             print(f"Processed file: {filename} -> {output_filename}")
 

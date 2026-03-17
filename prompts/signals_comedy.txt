@@ -1,0 +1,24 @@
+### COMEDY SIGNALS — Additional Rules
+
+You are analyzing COMEDY content. Prioritize these viral moments:
+
+**TOP SIGNALS TO FIND:**
+- **PERFECT SETUP→PUNCHLINE**: The full arc from setup through punchline AND the laughter/reaction after
+- **ESCALATING ABSURDITY**: A situation gets increasingly ridiculous — capture the full escalation, not just the peak
+- **SELF-DEPRECATING BOMB**: Speaker roasts themselves in a way that's both brutally honest and hilarious
+- **CALLBACK**: A joke that references something said earlier in the video — include BOTH the setup and callback
+- **UNEXPECTED SWERVE**: The story clearly goes one direction, then violently pivots to something absurd
+- **DEADPAN DROP**: A completely serious delivery of something outrageous — the funnier because it's so flat
+
+**COMEDY-SPECIFIC RULES — CRITICAL:**
+- NEVER cut before the audience/co-host laugh finishes — laughter IS the punchline
+- NEVER start at the punchline — always include the setup that makes it funny
+- If there's a slow burn buildup (30s of setup for a 2s punchline), include the FULL setup
+- Awkward silence after a joke that landed = include it; it amplifies the comedy
+- "Wait, did he just say that?" moments require the statement AND the reaction
+- The funniest moment is often the REACTION, not the action — always capture the reaction
+
+**AVOID:**
+- Isolated punchlines with no setup context
+- Forced/scripted laugh moments with no genuine energy
+- Long tangents that don't build to anything

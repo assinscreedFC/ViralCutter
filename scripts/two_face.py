@@ -2,6 +2,9 @@ import cv2
 import mediapipe as mp
 import numpy as np
 
+MIN_CROP_QUALITY_RATIO = 0.45  # Ratio minimum crop/target pour éviter la dégradation
+
+
 def crop_and_maintain_ar(frame, face_box, target_w, target_h, zoom_out_factor=2.2):
     """
     Recorta uma região baseada no rosto mantendo o aspect ratio do target.
@@ -68,13 +71,21 @@ def crop_and_maintain_ar(frame, face_box, target_w, target_h, zoom_out_factor=2.
     
     # Crop
     cropped = frame[y1:y2, x1:x2]
-    
+
     # Se o crop falhar (tamanho 0), retorna preto
     if cropped.size == 0 or cropped.shape[0] == 0 or cropped.shape[1] == 0:
         return np.zeros((target_h, target_w, 3), dtype=np.uint8)
 
+    # Quality gate: si le crop est trop petit, élargir le zoom_out_factor
+    if crop_w < target_w * MIN_CROP_QUALITY_RATIO:
+        # Fallback: utiliser toute la largeur source disponible
+        fallback_w = min(img_w, int(img_h * (target_w / target_h)))
+        fallback_h = int(fallback_w * (target_h / target_w))
+        fx = max(0, (img_w - fallback_w) // 2)
+        fy = max(0, (img_h - fallback_h) // 2)
+        cropped = frame[fy:fy + fallback_h, fx:fx + fallback_w]
+
     # Redimensionar para o tamanho alvo final (1080x960)
-    # Como garantimos o AR, o resize mantém a proporção correta
     resized = cv2.resize(cropped, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
     return resized
 

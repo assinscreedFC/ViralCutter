@@ -22,6 +22,7 @@ from scripts import (
     transcribe_cuts,
     adjust_subtitles,
     burn_subtitles,
+    add_music,
     save_json,
     organize_output,
     translate_json,
@@ -110,7 +111,7 @@ def main():
     parser.add_argument("--max-duration", type=int, default=90, help="Maximum segment duration (seconds)")
     parser.add_argument("--model", default="large-v3-turbo", help="Whisper model to use")
     
-    parser.add_argument("--ai-backend", choices=["manual", "gemini", "g4f", "local"], help="AI backend for viral analysis")
+    parser.add_argument("--ai-backend", choices=["manual", "gemini", "g4f", "pleiade", "local"], help="AI backend for viral analysis")
     parser.add_argument("--api-key", help="Gemini API Key (required if ai-backend is gemini)")
     
     parser.add_argument("--chunk-size", help="Override Chunk Size")
@@ -138,6 +139,18 @@ def main():
     parser.add_argument("--video-quality", choices=["best", "1080p", "720p", "480p"], default="best", help="Video download quality")
     parser.add_argument("--skip-youtube-subs", action="store_true", help="Skip downloading YouTube subtitles")
     parser.add_argument("--translate-target", help="Target language code for subtitle translation (e.g. 'pt', 'en').")
+    parser.add_argument("--content-type", choices=["auto", "comedy", "commentary", "cooking", "education", "gaming", "motivation", "music", "news", "podcast", "sport", "talkshow", "vlog"], action="append", dest="content_type", default=None, help="Content type for adaptive prompts, repeatable for multi-label (e.g. --content-type gaming --content-type comedy)")
+    parser.add_argument("--enable-scoring", action="store_true", help="Enable LLM scoring pass to filter low-quality segments")
+    parser.add_argument("--min-score", type=int, default=70, help="Minimum viral score to keep a segment (0-100, default: 70)")
+    parser.add_argument("--zoom-out-factor", type=float, default=2.2, help="Zoom out factor for 2-face mode (default: 2.2)")
+    parser.add_argument("--add-music", action="store_true", help="Add background music to final clips")
+    parser.add_argument("--music-dir", help="Directory with background music files (default: music/)")
+    parser.add_argument("--music-file", help="Specific music file to use")
+    parser.add_argument("--music-volume", type=float, default=0.12, help="Background music volume (default: 0.12)")
+    parser.add_argument("--add-distraction", action="store_true", help="Add split-screen distraction video (TikTok format)")
+    parser.add_argument("--distraction-dir", help="Directory with distraction videos (default: distraction/)")
+    parser.add_argument("--distraction-file", help="Specific distraction video to use")
+    parser.add_argument("--distraction-no-fetch", action="store_true", help="Disable auto-fetch of distraction videos (use cache only)")
 
     args = parser.parse_args()
     
@@ -364,6 +377,43 @@ def main():
                  print(i18n("Gemini API Key not found in api_config.json or arguments."))
                  api_key = input(i18n("Enter your Gemini API Key: ")).strip()
 
+    # Si les segments étaient déjà chargés, ai_backend est resté "manual" car le bloc de config a été sauté.
+    # Priorité : 1) args.ai_backend (CLI / WebUI), 2) api_config.json selected_api
+    if ai_backend == "manual":
+        # 1) L'argument CLI/WebUI a la priorité absolue
+        if args.ai_backend and args.ai_backend != "manual":
+            ai_backend = args.ai_backend
+            if ai_backend == "gemini" and not api_key:
+                _cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'api_config.json')
+                if os.path.exists(_cfg_path):
+                    try:
+                        with open(_cfg_path, 'r', encoding='utf-8') as _f:
+                            _cfg = json.load(_f)
+                        _key = _cfg.get("gemini", {}).get("api_key", "")
+                        if _key and _key not in ("", "SUA_KEY_AQUI"):
+                            api_key = _key
+                        if not args.ai_model_name:
+                            args.ai_model_name = _cfg.get("gemini", {}).get("model")
+                    except Exception:
+                        pass
+        else:
+            # 2) Fallback : lire api_config.json
+            _cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'api_config.json')
+            if os.path.exists(_cfg_path):
+                try:
+                    with open(_cfg_path, 'r', encoding='utf-8') as _f:
+                        _cfg = json.load(_f)
+                    _loaded_backend = _cfg.get("selected_api", "")
+                    if _loaded_backend and _loaded_backend != "manual":
+                        ai_backend = _loaded_backend
+                        _key = _cfg.get(ai_backend, {}).get("api_key", "")
+                        if _key and _key not in ("", "SUA_KEY_AQUI"):
+                            api_key = _key
+                        if not args.ai_model_name:
+                            args.ai_model_name = _cfg.get(ai_backend, {}).get("model")
+                except Exception:
+                    pass
+
     # Workflow & Face Config Inputs
     workflow_choice = args.workflow
     face_model = args.face_model
@@ -467,17 +517,24 @@ def main():
                     
                 if not viral_segments:
                     print(i18n("Creating viral segments using {}...").format(ai_backend.upper()))
+                    # args.content_type est None ou une liste (action="append")
+                    # Filtrer "auto" et normaliser
+                    raw_ct = args.content_type or []
+                    content_type_arg = [ct for ct in raw_ct if ct != "auto"] or None
                     viral_segments = create_viral_segments.create(
-                        num_segments, 
-                        viral_mode, 
-                        themes, 
-                        args.min_duration, 
+                        num_segments,
+                        viral_mode,
+                        themes,
+                        args.min_duration,
                         args.max_duration,
                         ai_mode=ai_backend,
                         api_key=api_key,
                         project_folder=project_folder,
                         chunk_size_arg=args.chunk_size,
-                        model_name_arg=args.ai_model_name
+                        model_name_arg=args.ai_model_name,
+                        content_type=content_type_arg,
+                        enable_scoring=args.enable_scoring,
+                        min_score=args.min_score
                     )
                 
                 if not viral_segments or not viral_segments.get("segments"):
@@ -515,6 +572,25 @@ def main():
                       except Exception as e:
                           print(i18n("Failed to align raw segments: {}").format(e))
                           # If alignment fails, it might crash later, but we tried. 
+
+        # 3.6. Génération des captions TikTok (seulement si au moins un segment n'en a pas)
+        _segs_for_caption = viral_segments.get("segments", []) if viral_segments else []
+        _needs_captions = any(not s.get("tiktok_caption") for s in _segs_for_caption)
+        if viral_segments and workflow_choice != "3" and ai_backend in ("pleiade", "gemini", "g4f") and _needs_captions:
+            print(i18n("Generating TikTok captions..."))
+            try:
+                transcript_for_captions = create_viral_segments.load_transcript(project_folder)
+                transcript_text = create_viral_segments.preprocess_transcript_for_ai(transcript_for_captions)
+                viral_segments["segments"] = create_viral_segments.generate_tiktok_captions(
+                    viral_segments["segments"],
+                    transcript_text,
+                    ai_mode=ai_backend,
+                    api_key=api_key,
+                    model_name=args.ai_model_name
+                )
+                save_json.save_viral_segments(viral_segments, project_folder=project_folder)
+            except Exception as e:
+                print(f"[WARN] TikTok caption generation failed: {e}")
 
         # 4. Cut Segments
         # Se workflow for 3, pulamos corte
@@ -556,9 +632,9 @@ def main():
             
             # Parse dead zone safely
             try:
-                dead_zone_val = float(args.face_dead_zone)
+                dead_zone_val = int(args.face_dead_zone)
             except:
-                dead_zone_val = 40.0
+                dead_zone_val = 40
                 
             edit_video.edit(
                 project_folder=project_folder, 
@@ -577,7 +653,8 @@ def main():
                 active_speaker_motion_sensitivity=args.active_speaker_motion_sensitivity,
                 active_speaker_decay=args.active_speaker_decay,
                 segments_data=viral_segments.get("segments", []) if viral_segments else None,
-                no_face_mode=args.no_face_mode
+                no_face_mode=args.no_face_mode,
+                zoom_out_factor=args.zoom_out_factor
             )
 
 
@@ -639,13 +716,17 @@ def main():
             # -------------------------------
 
             sub_config = get_subtitle_config(args.subtitle_config)
-            
 
-            
-            # Passa o dicionário desempacotado como argumentos, mais o project_folder
+            # Split-screen auto-adjust: place subtitles near the split line.
+            # ASS PlayResY=640. In the final 1080×1920 composite, split at y=960.
+            # MarginV=340 → text bottom at 340/640*1920=1020px from bottom → 900px from top → 60px above split. ✓
+            # Subs are burned AFTER distraction so the math is correct on the composite video.
+            if getattr(args, 'add_distraction', False):
+                sub_config['vertical_position'] = 310
+
+            # Genera arquivos .ass
             try:
                 adjust_subtitles.adjust(project_folder=project_folder, **sub_config)
-                burn_subtitles.burn(project_folder=project_folder)
             except FileNotFoundError as fnf_error:
                 print(i18n("\n[ERROR] Subtitle processing failed: {}").format(str(fnf_error)))
                 print(i18n("Tip: If you are using Workflow 3 (Subtitles Only), ensure the 'subs' folder exists and contains valid JSON files."))
@@ -655,6 +736,62 @@ def main():
                 raise e
         else:
             print(i18n("Subtitle burning skipped."))
+
+        # --- Ajout musique de fond (optionnel) ---
+        if args.add_music:
+            print(i18n("Adding background music..."))
+            try:
+                _segs = viral_segments.get("segments", []) if viral_segments else []
+                add_music.add_music_to_project(
+                    project_folder=project_folder,
+                    music_dir=args.music_dir,
+                    music_file=args.music_file,
+                    music_volume=args.music_volume,
+                    segments=_segs,
+                )
+            except Exception as e:
+                print(f"[WARN] Music addition failed: {e}")
+
+        # --- Split-screen distraction (optionnel) ---
+        # Note: distraction est appliquée AVANT burn_subtitles pour que les subs soient
+        # brûlés directement sur la vidéo composite (évite le décalage dû au crop centré).
+        if args.add_distraction:
+            print("Adding split-screen distraction video...")
+            try:
+                from scripts.add_distraction_video import add_distraction_to_project
+                from scripts.add_distraction_video import DEFAULT_DISTRACTION_DIR as _DIST_DIR
+                add_distraction_to_project(
+                    project_folder=project_folder,
+                    distraction_dir=args.distraction_dir or _DIST_DIR,
+                    distraction_file=args.distraction_file,
+                    no_fetch=args.distraction_no_fetch,
+                    # Mode 2 faces : visage du haut à Y=480 → top crop (y=0) pour éviter qu'il soit coupé
+                    # Mode 1 face : visage à Y=960 (centre) → crop centré par défaut (None)
+                    main_crop_y=0 if getattr(args, 'face_mode', '1') == '2' else None,
+                )
+            except Exception as e:
+                print(f"[WARN] Split-screen distraction failed: {e}")
+
+        # --- Burn subtitles ---
+        if burn_subtitles_option:
+            try:
+                if args.add_distraction:
+                    # Burn sur la vidéo composite split_screen/ (subs positionnés correctement sur 1920px)
+                    split_screen_folder = os.path.join(project_folder, 'split_screen')
+                    # Le suffix à supprimer dépend des étapes appliquées avant :
+                    # avec musique : {name}_music_split.mp4 → strip "_music_split"
+                    # sans musique : {name}_split.mp4 → strip "_split"
+                    split_suffix = "_music_split" if args.add_music else "_split"
+                    burn_subtitles.burn(
+                        project_folder=project_folder,
+                        source_folder=split_screen_folder,
+                        name_suffix_strip=split_suffix,
+                    )
+                else:
+                    burn_subtitles.burn(project_folder=project_folder)
+            except Exception as e:
+                print(i18n("\n[ERROR] Unexpected error during subtitle burning: {}").format(str(e)))
+                raise e
 
         # Organização Final (Opcional, pois agora já está tudo em project_folder)
         # organize_output.organize(project_folder=project_folder)

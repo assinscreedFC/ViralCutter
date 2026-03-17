@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.pyc
+tmp/
+VIRALS/
+models/
+music/
+LR-ASD/
+music/
+distraction/
+VIRALS/

@@ -84,64 +84,78 @@ def detect_faces_insightface(frame):
         results.append(res)
     return results
 
+def check_crop_quality(crop_width: int, target_width: int, min_ratio: float = 0.45) -> bool:
+    """Vérifie si le crop a assez de résolution pour l'upscale.
+    Retourne True si la qualité est suffisante."""
+    return crop_width >= target_width * min_ratio
+
+
+def crop_center_fallback(frame, target_width=1080, target_height=1920):
+    """Center crop 9:16 sans face tracking — préserve la résolution source."""
+    h, w, _ = frame.shape
+    target_ar = target_width / target_height
+
+    if w / h > target_ar:
+        new_w = int(h * target_ar)
+        new_h = h
+    else:
+        new_w = w
+        new_h = int(w / target_ar)
+
+    start_x = (w - new_w) // 2
+    start_y = (h - new_h) // 2
+    cropped = frame[start_y:start_y + new_h, start_x:start_x + new_w]
+    return cv2.resize(cropped, (target_width, target_height), interpolation=cv2.INTER_AREA)
+
+
 def crop_and_resize_insightface(frame, face_bbox, target_width=1080, target_height=1920):
     """
     Crops and resizes the frame to target dimensions centered on the face_bbox.
     face_bbox: [x1, y1, x2, y2]
+    Includes quality gate: falls back to center crop if face zoom would degrade quality.
     """
     h, w, _ = frame.shape
     x1, y1, x2, y2 = face_bbox
-    
+
     face_center_x = (x1 + x2) // 2
     face_center_y = (y1 + y2) // 2
-    
-    # Calculate crop area based on target aspect ratio and face position
-    # We want to keep the face roughly in the upper-middle or center?
-    # Usually center for simple implementation, or slightly upper for "talking head".
-    
-    # Logic similar to one_face.py but adapted
-    
-    # Determine the scaling factor to ensure the crop covers the target height
-    # Ideally we want the height of the video to match the target height after resize
-    # But usually we source from landscape (16:9) to portrait (9:16).
-    # We need to crop a 9:16 area from the source.
-    
+
     # Calculate source crop height/width maintaining 9:16 ratio
-    # Trying to maximize height usage of the source frame usually.
-    
-    # Let's say we want to use the full height of the source if possible
     source_h = h
     source_w = int(source_h * (target_width / target_height))
-    
+
     if source_w > w:
-        # If the calculated width is wider than the source image, we are limited by width
         source_w = w
         source_h = int(source_w * (target_height / target_width))
 
+    # Quality gate: si le crop est trop petit, fallback center crop
+    if not check_crop_quality(source_w, target_width):
+        return crop_center_fallback(frame, target_width, target_height)
+
     # Calculate top-left corner of the crop
     crop_x1 = face_center_x - (source_w // 2)
-    crop_y1 = face_center_y - (source_h // 2) # Center vertically on face
-    
+    crop_y1 = face_center_y - (source_h // 2)
+
     # Adjust to stay within bounds
-    if crop_x1 < 0: 
+    if crop_x1 < 0:
         crop_x1 = 0
     elif crop_x1 + source_w > w:
         crop_x1 = w - source_w
-        
+
     if crop_y1 < 0:
         crop_y1 = 0
     elif crop_y1 + source_h > h:
         crop_y1 = h - source_h
-        
+
     crop_x2 = crop_x1 + source_w
     crop_y2 = crop_y1 + source_h
-    
+
     # Crop
     cropped = frame[crop_y1:crop_y2, crop_x1:crop_x2]
-    
+
     # Resize to final target
     result = cv2.resize(cropped, (target_width, target_height), interpolation=cv2.INTER_LINEAR)
-    
+
     return result
 
 if __name__ == "__main__":

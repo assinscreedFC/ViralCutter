@@ -1,7 +1,11 @@
-import gradio as gr
-import subprocess
 import os
 import sys
+import warnings
+warnings.filterwarnings("ignore")
+os.environ["PYTHONWARNINGS"] = "ignore"
+
+import gradio as gr
+import subprocess
 import json
 import psutil
 import shutil
@@ -53,6 +57,89 @@ if not os.path.exists(MODELS_DIR):
 
 # Global variables
 current_process = None
+
+
+def generate_captions_for_project(proj_name: str):
+    """Génère les captions TikTok pour un projet existant (appel LLM à la demande)."""
+    if not proj_name:
+        return "Aucun projet sélectionné.", None
+
+    try:
+        from scripts import create_viral_segments
+        from scripts import save_json
+
+        # Charger api_config
+        api_config_path = os.path.join(WORKING_DIR, "api_config.json")
+        with open(api_config_path, "r", encoding="utf-8") as f:
+            api_cfg = json.load(f)
+
+        ai_mode = api_cfg.get("selected_api", "gemini")
+        api_key = api_cfg.get(ai_mode, {}).get("api_key") or os.getenv("GEMINI_API_KEY") or os.getenv("OPENAI_API_KEY")
+        model_name = api_cfg.get(ai_mode, {}).get("model")
+
+        # Fallback : si pas de clé valide, utiliser le backend de webui/settings.json
+        if (not api_key or api_key in ("", "SUA_KEY_AQUI")) and ai_mode not in ("pleiade", "g4f"):
+            settings_path = os.path.join(os.path.dirname(__file__), "settings.json")
+            if os.path.exists(settings_path):
+                try:
+                    with open(settings_path, "r", encoding="utf-8") as _sf:
+                        _settings = json.load(_sf)
+                    _fallback_mode = _settings.get("ai_backend", "")
+                    if _fallback_mode and _fallback_mode != "manual":
+                        ai_mode = _fallback_mode
+                        api_key = api_cfg.get(ai_mode, {}).get("api_key") or ""
+                        model_name = _settings.get("ai_model_name") or api_cfg.get(ai_mode, {}).get("model")
+                except Exception:
+                    pass
+
+        # Trouver le dossier projet
+        project_folder = os.path.join(VIRALS_DIR, proj_name) if not os.path.isabs(proj_name) else proj_name
+
+        # Priorité : backend du process_config.json du projet (plus fiable)
+        proc_cfg_path = os.path.join(project_folder, "process_config.json")
+        if os.path.exists(proc_cfg_path):
+            try:
+                with open(proc_cfg_path, "r", encoding="utf-8") as f:
+                    proc_cfg = json.load(f)
+                proj_backend = proc_cfg.get("ai_config", {}).get("backend", "")
+                if proj_backend and proj_backend != "manual":
+                    ai_mode = proj_backend
+                    model_name = proc_cfg.get("ai_config", {}).get("model_name") or api_cfg.get(ai_mode, {}).get("model")
+                    api_key = api_cfg.get(ai_mode, {}).get("api_key") or os.getenv("GEMINI_API_KEY") or os.getenv("OPENAI_API_KEY")
+            except Exception:
+                pass
+
+        if ai_mode not in ("gemini", "g4f", "pleiade"):
+            return f"Backend '{ai_mode}' ne supporte pas la génération automatique.", None
+
+        segments_file = os.path.join(project_folder, "viral_segments.txt")
+        if not os.path.exists(segments_file):
+            return "viral_segments.txt introuvable pour ce projet.", None
+
+        with open(segments_file, "r", encoding="utf-8") as f:
+            viral_segments = json.load(f)
+
+        segments = viral_segments.get("segments", [])
+        if not segments:
+            return "Aucun segment trouvé.", None
+
+        # Charger la transcription
+        transcript = create_viral_segments.load_transcript(project_folder)
+        transcript_text = create_viral_segments.preprocess_transcript_for_ai(transcript)
+
+        # Générer les captions
+        updated = create_viral_segments.generate_tiktok_captions(
+            segments, transcript_text, ai_mode=ai_mode, api_key=api_key, model_name=model_name
+        )
+        viral_segments["segments"] = updated
+        save_json.save_viral_segments(viral_segments, project_folder=project_folder)
+
+        count = sum(1 for s in updated if s.get("tiktok_caption"))
+        gallery = library.generate_project_gallery(proj_name)
+        return f"{count}/{len(updated)} captions générées.", gallery
+
+    except Exception as e:
+        return f"Erreur : {e}", None
 
 # Helpers
 def convert_color_to_ass(hex_color, alpha="00"):
@@ -177,14 +264,65 @@ def apply_experimental_preset(preset_name):
 
 # Subtitle logic moved to subtitle_handler.py
 
+# ---------------------------------------------------------------------------
+# Settings persistence
+# ---------------------------------------------------------------------------
 
-def run_viral_cutter(input_source, project_name, url, video_file, segments, viral, themes, min_duration, max_duration, model, ai_backend, api_key, ai_model_name, chunk_size, workflow, face_model, face_mode, face_detect_interval, no_face_mode, 
-                     face_filter_thresh, face_two_thresh, face_conf_thresh, face_dead_zone, focus_active_speaker, active_speaker_mar, active_speaker_score_diff, include_motion, active_speaker_motion_threshold, active_speaker_motion_sensitivity, active_speaker_decay,
+SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
+
+SETTINGS_KEYS = [
+    "segments", "viral", "themes", "min_duration", "max_duration",
+    "model", "ai_backend", "api_key", "ai_model_name", "chunk_size",
+    "workflow", "face_model", "face_mode", "face_detect_interval", "no_face_mode",
+    "face_filter_thresh", "face_two_thresh", "face_conf_thresh", "face_dead_zone", "zoom_out_factor",
+    "focus_active_speaker",
+    "active_speaker_mar", "active_speaker_score_diff", "include_motion",
+    "active_speaker_motion_threshold", "active_speaker_motion_sensitivity", "active_speaker_decay",
+    "content_type", "enable_scoring", "min_score",
+    "use_custom_subs", "subtitle_preset",
+    "font_name", "font_size", "font_color", "highlight_color",
+    "outline_color", "outline_thickness", "shadow_color", "shadow_size",
+    "bold", "italic", "uppercase", "vertical_pos", "alignment",
+    "highlight_size", "words_per_block", "gap", "mode",
+    "underline", "strikeout", "border_style", "remove_punc",
+    "video_quality", "use_youtube_subs", "translate_target",
+    "add_music", "music_dir", "music_file", "music_volume",
+    "add_distraction", "distraction_dir", "distraction_file", "distraction_no_fetch",
+    "post_youtube", "post_tiktok", "youtube_privacy", "post_interval_minutes", "post_first_time",
+]
+
+def save_settings(*values):
+    data = dict(zip(SETTINGS_KEYS, values))
+    try:
+        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        return i18n("Settings saved.")
+    except Exception as e:
+        return i18n("Error saving settings: {}").format(e)
+
+def load_settings():
+    if not os.path.exists(SETTINGS_FILE):
+        return [gr.update() for _ in SETTINGS_KEYS]
+    try:
+        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return [gr.update(value=data[k]) if k in data else gr.update() for k in SETTINGS_KEYS]
+    except Exception:
+        return [gr.update() for _ in SETTINGS_KEYS]
+
+
+def run_viral_cutter(input_source, project_name, url, video_file, segments, viral, themes, min_duration, max_duration, model, ai_backend, api_key, ai_model_name, chunk_size, workflow, face_model, face_mode, face_detect_interval, no_face_mode,
+                     face_filter_thresh, face_two_thresh, face_conf_thresh, face_dead_zone, zoom_out_factor, focus_active_speaker, active_speaker_mar, active_speaker_score_diff, include_motion, active_speaker_motion_threshold, active_speaker_motion_sensitivity, active_speaker_decay,
+                     content_type, enable_scoring, min_score,
                      use_custom_subs, font_name, font_size, font_color, highlight_color, outline_color, outline_thickness, shadow_color, shadow_size, is_bold, is_italic, is_uppercase, vertical_pos, alignment,
-                     h_size, w_block, gap, mode, under, strike, border_s, remove_punc, video_quality, use_youtube_subs, translate_target):
+                     h_size, w_block, gap, mode, under, strike, border_s, remove_punc, video_quality, use_youtube_subs, translate_target,
+                     add_music, music_dir, music_file, music_volume,
+                     add_distraction, distraction_dir, distraction_file, distraction_no_fetch,
+                     post_youtube, post_tiktok, youtube_privacy, post_interval_minutes, post_first_time):
     
     global current_process
-    yield "", gr.update(value=i18n("Running..."), interactive=False), gr.update(visible=True), None 
+    min_score = min_score if min_score is not None else 70
+    yield "", gr.update(value=i18n("Running..."), interactive=False), gr.update(visible=True), None
 
     cmd = [sys.executable, MAIN_SCRIPT_PATH]
     
@@ -272,13 +410,40 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
         if active_speaker_motion_sensitivity is not None: cmd.extend(["--active-speaker-motion-sensitivity", str(active_speaker_motion_sensitivity)])
         if active_speaker_decay is not None: cmd.extend(["--active-speaker-decay", str(active_speaker_decay)])
 
+    # Zoom out factor
+    if zoom_out_factor is not None: cmd.extend(["--zoom-out-factor", str(zoom_out_factor)])
+
+    # Advanced AI settings (content_type est une liste, vide = auto-détection)
+    types = content_type if isinstance(content_type, list) else ([content_type] if content_type else [])
+    for ct in [t for t in types if t and t != "auto"]:
+        cmd.extend(["--content-type", ct])
+    if enable_scoring:
+        cmd.append("--enable-scoring")
+        if min_score is not None: cmd.extend(["--min-score", str(int(min_score))])
+
+    # Music
+    if add_music:
+        cmd.append("--add-music")
+        if music_dir: cmd.extend(["--music-dir", music_dir])
+        if music_file: cmd.extend(["--music-file", music_file])
+        if music_volume is not None: cmd.extend(["--music-volume", str(music_volume)])
+
+    # Split-screen distraction
+    if add_distraction:
+        cmd.append("--add-distraction")
+        if distraction_dir: cmd.extend(["--distraction-dir", distraction_dir])
+        if distraction_file: cmd.extend(["--distraction-file", distraction_file])
+        if distraction_no_fetch: cmd.append("--distraction-no-fetch")
+
     cmd.append("--skip-prompts") # Always skip prompts in WebUI to prevent freezing
 
     if use_custom_subs:
+        # En mode distraction, forcer les subs près de la ligne de coupure (PlayResY=640, split à y=320)
+        effective_vertical_pos = 340 if add_distraction else vertical_pos
         subtitle_config = {
             "font": font_name, "base_size": int(font_size), "base_color": convert_color_to_ass(font_color), "highlight_color": convert_color_to_ass(highlight_color),
             "outline_color": convert_color_to_ass(outline_color), "outline_thickness": outline_thickness, "shadow_color": convert_color_to_ass(shadow_color),
-            "shadow_size": shadow_size, "vertical_position": vertical_pos, "alignment": alignment, "bold": 1 if is_bold else 0, "italic": 1 if is_italic else 0, 
+            "shadow_size": shadow_size, "vertical_position": effective_vertical_pos, "alignment": alignment, "bold": 1 if is_bold else 0, "italic": 1 if is_italic else 0,
             "underline": 1 if under else 0, "strikeout": 1 if strike else 0, "border_style": border_s, "words_per_block": int(w_block), "gap_limit": gap,
             "mode": mode, "highlight_size": int(h_size), "remove_punctuation": remove_punc
         }
@@ -351,7 +516,34 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
     
     # Wait to ensure filesystem flush
     time.sleep(1.0)
-    
+
+    # ── Auto Post ─────────────────────────────────────────────────────────────
+    if (post_youtube or post_tiktok) and project_folder_path and os.path.exists(project_folder_path):
+        try:
+            import sys as _sys
+            if WORKING_DIR not in _sys.path:
+                _sys.path.insert(0, WORKING_DIR)
+            from scripts.post_social import post_all_segments
+            logs += "\n[Auto Post] Starting...\n"
+            yield logs, gr.update(interactive=False), gr.update(visible=True), None
+            post_results = post_all_segments(
+                project_folder=project_folder_path,
+                post_youtube=post_youtube,
+                post_tiktok=post_tiktok,
+                youtube_privacy=youtube_privacy,
+                interval_minutes=float(post_interval_minutes),
+                first_post_time=post_first_time,
+            )
+            for r in post_results:
+                if r.get("status") == "success":
+                    scheduled = f" (scheduled {r['scheduled_at']})" if r.get("scheduled_at") else ""
+                    logs += f"[Auto Post] {r['platform'].upper()} uploaded{scheduled} — {r.get('url') or r.get('title')}\n"
+                else:
+                    logs += f"[Auto Post] {r['platform'].upper()} FAILED — {r.get('error')}\n"
+        except Exception as _e:
+            logs += f"[Auto Post] Error: {_e}\n"
+    # ──────────────────────────────────────────────────────────────────────────
+
     html_output = ""
     if project_folder_path and os.path.exists(project_folder_path):
         html_output = library.generate_project_gallery(project_folder_path, is_full_path=True)
@@ -426,7 +618,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                         max_dur_input = gr.Number(label=i18n("Max Duration (s)"), value=90)
                 with gr.Column(scale=1):
                     with gr.Row():
-                        ai_backend_input = gr.Dropdown(choices=[(i18n("Gemini"), "gemini"), (i18n("G4F"), "g4f"), (i18n("Local (GGUF)"), "local"), (i18n("Manual"), "manual")], label=i18n("AI Backend"), value="gemini", scale=2)
+                        ai_backend_input = gr.Dropdown(choices=[(i18n("Gemini"), "gemini"), (i18n("G4F"), "g4f"), ("Pléiade", "pleiade"), (i18n("Local (GGUF)"), "local"), (i18n("Manual"), "manual")], label=i18n("AI Backend"), value="gemini", scale=2)
                         api_key_input = gr.Textbox(label=i18n("Gemini API Key"), type="password", scale=3)
                     
                     # New Dynamic Inputs
@@ -439,6 +631,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     def update_ai_ui(backend):
                         show_api = (backend == "gemini")
                         show_refresh = (backend == "local")
+                        # Pléiade utilise .env, pas besoin d'API key dans l'UI
                         
                         # Definições padrão para evitar que fiquem vazios
                         new_choices = []
@@ -453,6 +646,10 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                             new_choices = G4F_MODELS
                             new_val = G4F_MODELS[5]
                             new_chunk = 70000
+                        elif backend == "pleiade":
+                            new_choices = ["athene-v2:latest", "Qwen3:30b", "deepseek-R1:70b"]
+                            new_val = os.getenv("PLEIADE_CHAT_MODEL", "athene-v2:latest")
+                            new_chunk = 12000
                         elif backend == "local":
                             models = get_local_models()
                             new_choices = models if models else [i18n("No models found")]
@@ -476,6 +673,39 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     refresh_models_btn.click(refresh_local_models, outputs=ai_model_input)
                     ai_backend_input.change(update_ai_ui, inputs=ai_backend_input, outputs=[api_key_input, ai_model_input, refresh_models_btn, chunk_size_input])
 
+                    with gr.Accordion(i18n("Advanced AI Settings"), open=False):
+                        content_type_input = gr.Dropdown(
+                            choices=[
+                                ("Comedy", "comedy"), ("Commentary", "commentary"),
+                                ("Cooking", "cooking"), ("Education", "education"),
+                                ("Gaming", "gaming"), ("Motivation", "motivation"),
+                                ("Music", "music"), ("News", "news"),
+                                ("Podcast", "podcast"), ("Sport", "sport"),
+                                ("Talk Show", "talkshow"), ("Vlog", "vlog"),
+                            ],
+                            label=i18n("Content Type"),
+                            value=[],
+                            multiselect=True,
+                            info=i18n("Leave empty for auto-detection. Select one or more types (e.g. Gaming + Comedy)")
+                        )
+                        with gr.Row():
+                            enable_scoring_input = gr.Checkbox(
+                                label=i18n("Enable Scoring Pass"),
+                                value=True,
+                                info=i18n("Score segments (0-100) and filter weak ones")
+                            )
+                            with gr.Row(visible=True) as min_score_row:
+                                min_score_input = gr.Slider(
+                                    label=i18n("Min Score"),
+                                    minimum=0, maximum=100, value=70, step=5,
+                                    info=i18n("Discard segments below this score")
+                                )
+                        enable_scoring_input.change(
+                            lambda x: (gr.update(visible=x), gr.update(value=70)),
+                            inputs=enable_scoring_input,
+                            outputs=[min_score_row, min_score_input]
+                        )
+
                     model_input = gr.Dropdown(["tiny", "small", "medium", "large", "large-v1", "large-v2", "large-v3", "turbo", "large-v3-turbo", "distil-large-v2", "distil-medium.en", "distil-small.en", "distil-large-v3"], label=i18n("Whisper Model"), value="large-v3-turbo")
                     with gr.Row():
                         workflow_input = gr.Dropdown(choices=[(i18n("Full"), "Full"), (i18n("Cut Only"), "Cut Only"), (i18n("Subtitles Only"), "Subtitles Only")], label=i18n("Workflow"), value="Full")
@@ -496,7 +726,8 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                       face_two_thresh_input = gr.Slider(label=i18n("Threshold for 2 Faces (0.0 - 1.0)"), minimum=0.0, maximum=1.0, value=0.60, step=0.05, info=i18n("Size of 2nd face to activate split mode."))
                       face_conf_thresh_input = gr.Slider(label=i18n("Minimum Confidence (0.0 - 1.0)"), minimum=0.0, maximum=1.0, value=0.40, step=0.05, info=i18n("Ignore detections with low confidence."))
                       face_dead_zone_input = gr.Slider(label=i18n("Dead Zone (Stabilization)"), minimum=0, maximum=200, value=150, step=5, info=i18n("Movement pixels to ignore."))
-                 
+                 zoom_out_factor_input = gr.Slider(label=i18n("Zoom Out Factor (2-face mode)"), minimum=1.0, maximum=4.0, value=2.2, step=0.1, info=i18n("Higher = more zoom out when 2 faces detected. Falls back to center-crop if crop quality < 45%."))
+
                  face_preset_input.change(apply_face_preset, inputs=face_preset_input, outputs=[face_filter_thresh_input, face_two_thresh_input, face_conf_thresh_input, face_dead_zone_input])
 
                  with gr.Accordion(i18n("Experimental: Active Speaker & Motion"), open=False):
@@ -530,8 +761,8 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     gr.Markdown(f"### {i18n('Appearance')}")
                     with gr.Row():
                         font_name_input = gr.Textbox(label=i18n("Font Name"), value="Montserrat-Regular")
-                        font_size_input = gr.Slider(label=i18n("Font Size (Base)"), minimum=8, maximum=80, value=12)
-                        highlight_size_input = gr.Slider(label=i18n("Highlight Size"), minimum=8, maximum=80, value=14)
+                        font_size_input = gr.Slider(label=i18n("Font Size (Base)"), minimum=1, maximum=80, value=12)
+                        highlight_size_input = gr.Slider(label=i18n("Highlight Size"), minimum=1, maximum=80, value=14)
                     
                     with gr.Row():
                         font_color_input = gr.ColorPicker(label=i18n("Base Color"), value="#FFFFFF")
@@ -573,10 +804,11 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                 
                 # Update manual inputs when preset changes
                 preset_input.change(subs.apply_preset, inputs=[preset_input], outputs=manual_inputs)
-                
-                # Auto-update PREVIEW HTML on any change
+
+                # Auto-update PREVIEW HTML on any change; also switch preset to Manual when user edits directly
                 for inp in manual_inputs:
                     inp.change(subs.generate_preview_html, inputs=manual_inputs, outputs=preview_html)
+                    inp.change(lambda: "Manual", inputs=[], outputs=[preset_input])
                 
                 # Render video button
                 preview_vid_btn.click(
@@ -589,9 +821,69 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                 demo.load(subs.generate_preview_html, inputs=manual_inputs, outputs=preview_html)
                 demo.load(subs.apply_preset, inputs=[preset_input], outputs=manual_inputs) # Apply default preset on load
 
+             with gr.Accordion(i18n("Music Settings"), open=False):
+                 add_music_input = gr.Checkbox(label=i18n("Add Background Music"), value=False, info=i18n("Mix royalty-free music from the music/ folder into the clips"))
+                 with gr.Row(visible=False) as music_options_row:
+                     music_dir_input = gr.Textbox(label=i18n("Music Folder"), placeholder="music/", value="", info=i18n("Folder with .mp3/.wav files (uses music/ by default)"))
+                     music_file_input = gr.Textbox(label=i18n("Specific Music File"), placeholder="path/to/song.mp3", value="", info=i18n("Force a specific file instead of auto-selection"))
+                     music_volume_input = gr.Slider(label=i18n("Music Volume"), minimum=0.01, maximum=0.5, value=0.12, step=0.01, info=i18n("Volume ratio of background music (default 12%)"))
+                 add_music_input.change(lambda x: gr.update(visible=x), inputs=add_music_input, outputs=music_options_row)
+
+             with gr.Accordion(i18n("Split-Screen (TikTok Format)"), open=False):
+                 add_distraction_input = gr.Checkbox(
+                     label=i18n("Add Distraction Video (bottom half)"), value=False,
+                     info=i18n("Stack a satisfying/gameplay video below the main clip (1080×1920 output). Subtitle position is automatically adjusted to appear at the split line.")
+                 )
+                 with gr.Row(visible=False) as distraction_options_row:
+                     distraction_dir_input = gr.Textbox(
+                         label=i18n("Distraction Folder"), placeholder="distraction/", value="",
+                         info=i18n("Folder with distraction videos (auto-downloaded to distraction/ by default)")
+                     )
+                     distraction_file_input = gr.Textbox(
+                         label=i18n("Specific Distraction File"), placeholder="path/to/video.mp4", value="",
+                         info=i18n("Force a specific video instead of random selection")
+                     )
+                     distraction_no_fetch_input = gr.Checkbox(
+                         label=i18n("Disable auto-fetch (use cache only)"), value=False,
+                         info=i18n("Never download distraction videos, use whatever is already in the cache")
+                     )
+                 add_distraction_input.change(lambda x: gr.update(visible=x), inputs=add_distraction_input, outputs=distraction_options_row)
+
+             with gr.Accordion(i18n("Auto Post"), open=False):
+                 with gr.Row():
+                     post_youtube_input = gr.Checkbox(
+                         label=i18n("Post to YouTube Shorts"), value=False,
+                         info=i18n("Requires YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in .env")
+                     )
+                     post_tiktok_input = gr.Checkbox(
+                         label=i18n("Post to TikTok"), value=False,
+                         info=i18n("Requires TIKTOK_COOKIES_PATH in .env")
+                     )
+                 youtube_privacy_input = gr.Dropdown(
+                     choices=["public", "private", "unlisted"],
+                     label=i18n("YouTube Privacy"), value="public", visible=False,
+                 )
+                 post_first_time_input = gr.Textbox(
+                     label=i18n("First post time (optional)"),
+                     placeholder="HH:MM  or  YYYY-MM-DD HH:MM",
+                     value="",
+                     info=i18n("Leave empty to post immediately after pipeline. Use HH:MM for today or YYYY-MM-DD HH:MM for a specific date.")
+                 )
+                 post_interval_input = gr.Number(
+                     label=i18n("Interval between posts (minutes)"),
+                     value=30, minimum=1, maximum=1440,
+                     info=i18n("Wait this many minutes between each video posted")
+                 )
+                 post_youtube_input.change(
+                     lambda x: gr.update(visible=x),
+                     inputs=post_youtube_input, outputs=youtube_privacy_input
+                 )
+
              with gr.Row():
                  start_btn = gr.Button(i18n("Start Processing"), variant="primary")
                  stop_btn = gr.Button(i18n("Stop"), variant="stop", visible=False)
+                 save_settings_btn = gr.Button(i18n("Save Settings"), variant="secondary", size="sm", scale=0, min_width=130)
+             save_settings_status = gr.Markdown("")
              stop_btn.click(kill_process, outputs=[])
              logs_output = gr.Textbox(label=i18n("Logs"), lines=10, autoscroll=True, elem_id="logs_output")
              
@@ -626,21 +918,53 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
              
              # MUST pass all all new inputs to the run function
              start_btn.click(run_viral_cutter, inputs=[
-                 input_source, project_selector, url_input, video_upload, segments_input, viral_input, themes_input, min_dur_input, max_dur_input, 
-                 model_input, ai_backend_input, api_key_input, ai_model_input, chunk_size_input, 
-                 workflow_input, face_model_input, face_mode_input, face_detect_interval_input, no_face_mode_input, 
-                 face_filter_thresh_input, face_two_thresh_input, face_conf_thresh_input, face_dead_zone_input, focus_active_speaker_input, 
+                 input_source, project_selector, url_input, video_upload, segments_input, viral_input, themes_input, min_dur_input, max_dur_input,
+                 model_input, ai_backend_input, api_key_input, ai_model_input, chunk_size_input,
+                 workflow_input, face_model_input, face_mode_input, face_detect_interval_input, no_face_mode_input,
+                 face_filter_thresh_input, face_two_thresh_input, face_conf_thresh_input, face_dead_zone_input, zoom_out_factor_input, focus_active_speaker_input,
                  active_speaker_mar_input, active_speaker_score_diff_input, include_motion_input, active_speaker_motion_threshold_input, active_speaker_motion_sensitivity_input, active_speaker_decay_input,
-                 use_custom_subs, 
+                 content_type_input, enable_scoring_input, min_score_input,
+                 use_custom_subs,
                  # Expanded Manual Inputs mapping
-                 font_name_input, font_size_input, font_color_input, highlight_color_input, 
-                 outline_color_input, outline_thickness_input, shadow_color_input, shadow_size_input, 
+                 font_name_input, font_size_input, font_color_input, highlight_color_input,
+                 outline_color_input, outline_thickness_input, shadow_color_input, shadow_size_input,
                  bold_input, italic_input, uppercase_input, vertical_pos_input, alignment_input,
                  # New Inputs
-                 highlight_size_input, words_per_block_input, gap_limit_input, mode_input, 
+                 highlight_size_input, words_per_block_input, gap_limit_input, mode_input,
                  underline_input, strikeout_input, border_style_input, remove_punc_input,
-                 video_quality_input, use_youtube_subs_input, translate_input
+                 video_quality_input, use_youtube_subs_input, translate_input,
+                 # Music
+                 add_music_input, music_dir_input, music_file_input, music_volume_input,
+                 # Split-screen distraction
+                 add_distraction_input, distraction_dir_input, distraction_file_input, distraction_no_fetch_input,
+                 # Auto Post
+                 post_youtube_input, post_tiktok_input, youtube_privacy_input, post_interval_input, post_first_time_input,
              ], outputs=[logs_output, start_btn, stop_btn, results_html])
+
+             # Saveable inputs (same order as SETTINGS_KEYS)
+             _saveable_inputs = [
+                 segments_input, viral_input, themes_input, min_dur_input, max_dur_input,
+                 model_input, ai_backend_input, api_key_input, ai_model_input, chunk_size_input,
+                 workflow_input, face_model_input, face_mode_input, face_detect_interval_input, no_face_mode_input,
+                 face_filter_thresh_input, face_two_thresh_input, face_conf_thresh_input, face_dead_zone_input, zoom_out_factor_input,
+                 focus_active_speaker_input,
+                 active_speaker_mar_input, active_speaker_score_diff_input, include_motion_input,
+                 active_speaker_motion_threshold_input, active_speaker_motion_sensitivity_input, active_speaker_decay_input,
+                 content_type_input, enable_scoring_input, min_score_input,
+                 use_custom_subs, preset_input,
+                 font_name_input, font_size_input, font_color_input, highlight_color_input,
+                 outline_color_input, outline_thickness_input, shadow_color_input, shadow_size_input,
+                 bold_input, italic_input, uppercase_input, vertical_pos_input, alignment_input,
+                 highlight_size_input, words_per_block_input, gap_limit_input, mode_input,
+                 underline_input, strikeout_input, border_style_input, remove_punc_input,
+                 video_quality_input, use_youtube_subs_input, translate_input,
+                 add_music_input, music_dir_input, music_file_input, music_volume_input,
+                 add_distraction_input, distraction_dir_input, distraction_file_input, distraction_no_fetch_input,
+                 # Auto Post
+                 post_youtube_input, post_tiktok_input, youtube_privacy_input, post_interval_input, post_first_time_input,
+             ]
+             save_settings_btn.click(save_settings, inputs=_saveable_inputs, outputs=[save_settings_status])
+             demo.load(load_settings, inputs=[], outputs=_saveable_inputs)
 
 
         with gr.Tab(i18n("Subtitle Editor")):
@@ -812,10 +1136,91 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
             with gr.Row():
                 project_dropdown = gr.Dropdown(choices=library.get_existing_projects(), label=i18n("Select Project"), value=None)
                 refresh_btn = gr.Button(i18n("Refresh List"))
+            with gr.Row():
+                gen_captions_btn = gr.Button("Generate TikTok Captions", variant="secondary")
+                captions_status = gr.Textbox(label="", interactive=False, show_label=False, scale=3)
+
+            with gr.Accordion(i18n("Auto Post"), open=False):
+                with gr.Row():
+                    lib_post_youtube = gr.Checkbox(
+                        label=i18n("Post to YouTube Shorts"), value=False,
+                        info=i18n("Requires YOUTUBE_CLIENT_ID + YOUTUBE_CLIENT_SECRET in .env")
+                    )
+                    lib_post_tiktok = gr.Checkbox(
+                        label=i18n("Post to TikTok"), value=False,
+                        info=i18n("Requires TIKTOK_COOKIES_PATH in .env")
+                    )
+                lib_youtube_privacy = gr.Dropdown(
+                    choices=["public", "private", "unlisted"],
+                    label=i18n("YouTube Privacy"), value="public", visible=False,
+                )
+                lib_post_youtube.change(
+                    lambda x: gr.update(visible=x),
+                    inputs=lib_post_youtube, outputs=lib_youtube_privacy
+                )
+                lib_first_time = gr.Textbox(
+                    label=i18n("First post time (optional)"),
+                    placeholder="HH:MM  or  YYYY-MM-DD HH:MM",
+                    value="",
+                    info=i18n("Leave empty to post immediately. Use HH:MM for today or YYYY-MM-DD HH:MM for a specific date.")
+                )
+                lib_interval = gr.Number(
+                    label=i18n("Interval between posts (minutes)"),
+                    value=30, minimum=1, maximum=1440,
+                    info=i18n("Wait this many minutes between each video posted")
+                )
+                lib_post_btn = gr.Button(i18n("Post Selected Project"), variant="primary")
+                lib_post_status = gr.Textbox(label=i18n("Post Status"), interactive=False, lines=4)
+
             project_gallery_html = gr.HTML()
             refresh_btn.click(library.refresh_projects, outputs=project_dropdown)
             def on_select_project(proj_name): return library.generate_project_gallery(proj_name)
             project_dropdown.change(on_select_project, project_dropdown, project_gallery_html)
+            gen_captions_btn.click(
+                generate_captions_for_project,
+                inputs=project_dropdown,
+                outputs=[captions_status, project_gallery_html]
+            )
+
+            def post_library_project(proj_name, post_yt, post_tt, privacy, first_time, interval):
+                if not proj_name:
+                    return i18n("No project selected.")
+                if not post_yt and not post_tt:
+                    return i18n("No platform selected. Check YouTube or TikTok.")
+                proj_path = os.path.join(VIRALS_DIR, proj_name)
+                if not os.path.exists(proj_path):
+                    return i18n("Project folder not found: {}").format(proj_path)
+                try:
+                    import sys as _sys
+                    if WORKING_DIR not in _sys.path:
+                        _sys.path.insert(0, WORKING_DIR)
+                    from scripts.post_social import post_all_segments
+                    results = post_all_segments(
+                        project_folder=proj_path,
+                        post_youtube=post_yt,
+                        post_tiktok=post_tt,
+                        youtube_privacy=privacy,
+                        interval_minutes=float(interval),
+                        first_post_time=first_time,
+                    )
+                except Exception as e:
+                    return f"Error: {e}"
+                if not results:
+                    return i18n("No segments posted. Check viral_segments.txt and filepath fields.")
+                lines = []
+                for r in results:
+                    if r.get("status") == "success":
+                        scheduled = f" (scheduled {r['scheduled_at']})" if r.get("scheduled_at") else ""
+                        lines.append(f"{r['platform'].upper()} uploaded{scheduled} — {r.get('url') or r.get('title')}")
+                    else:
+                        lines.append(f"{r['platform'].upper()} FAILED — {r.get('error')}")
+                return "\n".join(lines)
+
+            lib_post_btn.click(
+                post_library_project,
+                inputs=[project_dropdown, lib_post_youtube, lib_post_tiktok, lib_youtube_privacy, lib_first_time, lib_interval],
+                outputs=lib_post_status,
+            )
     
     gr.Markdown(f"""
         <hr>

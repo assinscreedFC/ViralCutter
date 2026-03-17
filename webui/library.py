@@ -62,17 +62,39 @@ def generate_project_gallery(project_path_name, is_full_path=False):
         
         segments_list = segments_data.get("segments", [])
         
+        # Detect which output mode is active for this project (best = most processed)
+        def _detect_output_mode(folder):
+            for subdir, label in [
+                ("burned_sub", "Subtitled"),
+                ("split_screen", "Split Screen"),
+                ("with_music", "With Music"),
+                ("cuts", "Cuts"),
+            ]:
+                d = os.path.join(folder, subdir)
+                if os.path.exists(d) and any(f.endswith(".mp4") for f in os.listdir(d)):
+                    return subdir, label
+            return ".", "Raw"
+
+        active_subdir, active_label = _detect_output_mode(project_folder_path)
+
         # Fallback if list is empty
         if not segments_list:
              found_files = []
-             for subdir in ["burned_sub", "cuts", "."]:
+             for subdir in ["burned_sub", "split_screen", "with_music", "cuts", "."]:
                  d = os.path.join(project_folder_path, subdir)
                  if os.path.exists(d):
                      for f in os.listdir(d):
                          if f.endswith(".mp4") and "input" not in f.lower():
                              found_files.append(os.path.join(d, f))
-             found_files = sorted(list(set(found_files)))
-             segments_list = [{"title": os.path.basename(f), "score": "N/A", "description": "No metadata found.", "filepath": f} for f in found_files]
+             # Deduplicate keeping order, prefer higher-priority dirs
+             seen_names = set()
+             deduped = []
+             for f in found_files:
+                 name = os.path.basename(f)
+                 if name not in seen_names:
+                     seen_names.add(name)
+                     deduped.append(f)
+             segments_list = [{"title": os.path.basename(f), "score": "N/A", "description": "No metadata found.", "filepath": f} for f in deduped]
 
         html_cards = ""
         
@@ -80,10 +102,11 @@ def generate_project_gallery(project_path_name, is_full_path=False):
             title = seg.get("title", f"{i18n('Segment')} {i+1}")
             score = seg.get("score", "N/A")
             description = seg.get("description", i18n("No description available."))
+            tiktok_caption = seg.get("tiktok_caption", "")
             
             video_path = seg.get("filepath", None)
             
-            # Smart search
+            # Smart search — priority: split_screen > with_music > burned_sub > cuts
             if not video_path:
                 idx_str = f"{i:03d}"
                 potential_paths = [
@@ -97,25 +120,46 @@ def generate_project_gallery(project_path_name, is_full_path=False):
                     os.path.join(project_folder_path, "cuts", f"{idx_str}.mp4")
                 ]
                 if isinstance(seg.get("filename"), str):
+                    base = seg["filename"].replace(".mp4", "")
+                    # Insert in reverse priority order (last insert = highest priority = position 0)
+                    potential_paths.insert(0, os.path.join(project_folder_path, "with_music", f"{base}_music.mp4"))
                     potential_paths.insert(0, os.path.join(project_folder_path, seg["filename"]))
                     potential_paths.insert(0, os.path.join(project_folder_path, "burned_sub", seg["filename"]))
+                    # split_screen: may be derived from burned_sub or with_music filename
+                    potential_paths.insert(0, os.path.join(project_folder_path, "split_screen", f"{base}_split.mp4"))
+                    potential_paths.insert(0, os.path.join(project_folder_path, "split_screen", f"{base}_music_split.mp4"))
+                    potential_paths.insert(0, os.path.join(project_folder_path, "burned_sub", f"{base}_split_subtitled.mp4"))
+                    potential_paths.insert(0, os.path.join(project_folder_path, "burned_sub", f"{base}_music_split_subtitled.mp4"))
 
                 for p in potential_paths:
                     if os.path.exists(p):
                         video_path = p
                         break
-            
-            # Loose search
+
+            # Loose search — priority: split_screen > with_music > burned_sub > cuts
             if not video_path:
-                 sub_dirs = [os.path.join(project_folder_path, "burned_sub"), os.path.join(project_folder_path, "cuts")]
+                 sub_dirs = [
+                     os.path.join(project_folder_path, "burned_sub"),
+                     os.path.join(project_folder_path, "split_screen"),
+                     os.path.join(project_folder_path, "with_music"),
+                     os.path.join(project_folder_path, "cuts"),
+                 ]
                  for sd in sub_dirs:
                      if os.path.exists(sd):
+                         idx_str = f"{i:03d}"
                          for f in sorted(os.listdir(sd)):
-                             idx_str = f"{i:03d}"
                              if f.endswith(".mp4") and idx_str in f:
                                  video_path = os.path.join(sd, f)
                                  break
                      if video_path: break
+
+            # Detect output type for badge
+            video_type_label = ""
+            if video_path:
+                for subdir, lbl in [("burned_sub", "Subtitled"), ("split_screen", "Split Screen"), ("with_music", "With Music"), ("cuts", "Cuts")]:
+                    if (os.sep + subdir + os.sep) in video_path or ("/" + subdir + "/") in video_path:
+                        video_type_label = lbl
+                        break
 
             video_tag = ""
             download_link = ""
@@ -228,30 +272,54 @@ def generate_project_gallery(project_path_name, is_full_path=False):
                     elif val < 85: score_color = "#eab308"
             except: pass
 
+            # TikTok caption block (vide si pas de caption)
+            if tiktok_caption:
+                caption_safe = tiktok_caption.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;").replace("'", "&#39;")
+                caption_js = tiktok_caption.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n")
+                caption_html = f'<div style="margin-top:8px;padding:8px 10px;background:#1a1a1a;border-radius:8px;border:1px solid #2a2a2a;"><p style="margin:0 0 6px 0;color:#ccc;font-size:12px;line-height:1.5;font-family:sans-serif;">{caption_safe}</p><button onclick="navigator.clipboard.writeText(\'{caption_js}\').then(()=>{{this.textContent=\'Copied!\';setTimeout(()=>this.textContent=\'Copy caption\',1500)}})" style="font-size:11px;padding:3px 10px;background:#2a2a2a;color:#ccc;border:1px solid #444;border-radius:5px;cursor:pointer;">Copy caption</button></div>'
+            else:
+                caption_html = ""
+
             # Card HTML - Dark Grid Style like Opus.pro (Inline Styles)
             if 'export_link' not in locals(): export_link = "" # Fallback if URL mode didn't trigger
 
+            # Mode badge colors
+            badge_colors = {
+                "Split Screen": ("#7c3aed", "#ede9fe"),
+                "With Music":   ("#0369a1", "#e0f2fe"),
+                "Subtitled":    ("#065f46", "#d1fae5"),
+                "Cuts":         ("#92400e", "#fef3c7"),
+            }
+            badge_html = ""
+            if video_type_label:
+                bg, fg = badge_colors.get(video_type_label, ("#374151", "#f9fafb"))
+                badge_html = f'<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:{bg};color:{fg};font-family:sans-serif;letter-spacing:0.5px;">{video_type_label.upper()}</span>'
+
             card_html = f"""
             <div style="display: flex; flex-direction: column; background: transparent; overflow: visible;">
-                
+
                 <!-- Video Player Container (9:16 Aspect Ratio) -->
                 <div style="position: relative; width: 100%; padding-top: 177.77%; background: #111; border-radius: 12px; overflow: hidden; margin-bottom: 12px; border: 1px solid #333; box-shadow: 0 4px 10px rgba(0,0,0,0.3);">
                     {video_tag}
                 </div>
-                
+
                 <!-- Info Area -->
                 <div style="display: flex; flex-direction: column; gap: 6px; padding: 0 4px;">
-                    <!-- Top Row: Score and Actions -->
+                    <!-- Top Row: Score, Badge, Actions -->
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-size: 28px; font-weight: 900; line-height: 1; color: {score_color}; font-family: sans-serif;">{score}</span>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 28px; font-weight: 900; line-height: 1; color: {score_color}; font-family: sans-serif;">{score}</span>
+                            {badge_html}
+                        </div>
                         <div style="display: flex; align-items: center; gap: 4px;">
                             {export_link}
                             {download_link}
                         </div>
                     </div>
-                    
+
                     <!-- Title -->
                     <h4 style="margin: 4px 0 0 0; color: #e5e5e5; font-size: 15px; font-weight: 600; line-height: 1.4; font-family: sans-serif; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-align: center;" title="{title}">{title}</h4>
+                    {caption_html}
                 </div>
             </div>
             """

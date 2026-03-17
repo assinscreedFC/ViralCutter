@@ -32,4 +32,5 @@ def save_viral_segments(segments_data=None, project_folder="tmp"):
                 json.dump(segments_data, file, ensure_ascii=False, indent=4)
             print(f"Segmentos virais salvos em {output_txt_file}\n")
     else:
-        print(f"O arquivo {output_txt_file} já existe. Nenhuma entrada adicional é necessária.")
+        with open(output_txt_file, 'w', encoding='utf-8') as file:
+            json.dump(segments_data, file, ensure_ascii=False, indent=4)

@@ -268,8 +268,8 @@ def transcribe(input_file, model_name='large-v3', project_folder='tmp'):
             )
 
             result = model.transcribe(
-                audio, 
-                batch_size=16, 
+                audio,
+                batch_size=4,
                 chunk_size=10
             )
             

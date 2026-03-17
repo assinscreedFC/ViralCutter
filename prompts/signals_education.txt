@@ -1,0 +1,23 @@
+### EDUCATION SIGNALS — Additional Rules
+
+You are analyzing EDUCATIONAL content. Prioritize these viral moments:
+
+**TOP SIGNALS TO FIND:**
+- **MIND-BLOWN FACT**: A statistic, fact, or concept so surprising that the listener's worldview shifts
+- **MYTH DESTRUCTION**: "Everything you know about X is wrong" — delivered with evidence
+- **ANALOGY THAT CLICKS**: An explanation so clear and simple that a complex thing suddenly makes perfect sense
+- **SCALE/NUMBER SHOCK**: A number so large or small that it becomes viscerally incomprehensible ("if you spent $1M a day...")
+- **HISTORICAL SECRET**: Something that happened that most people don't know — and should
+- **CAUSE AND EFFECT REVEAL**: "The REAL reason X happened was Y" — reframing something familiar
+
+**EDUCATION-SPECIFIC RULES:**
+- The "aha moment" needs its setup — include enough context that the revelation lands with full impact
+- If an expert uses a perfect analogy, capture the full analogy from start to finish
+- Counter-intuitive information must include the common assumption FIRST, then the truth
+- "I teach this topic and even I was surprised" = immediate trust signal, include it
+- Keep technical depth if it serves the revelation — don't oversimplify the clip
+
+**AVOID:**
+- Dry recitation of facts with no "so what?" payoff
+- Definitions or descriptions without a surprising angle
+- Balanced academic presentations with no clear takeaway or revelation

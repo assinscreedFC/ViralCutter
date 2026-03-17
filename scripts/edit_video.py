@@ -28,7 +28,7 @@ def get_best_encoder():
         # Priority: NVENC (NVIDIA) > AMF (AMD) > QSV (Intel) > CPU
         if "h264_nvenc" in output:
             print("Encoder Detected: NVIDIA (h264_nvenc)")
-            CACHED_ENCODER = ("h264_nvenc", "fast") # p1-p7 presets could be used but 'fast' maps well
+            CACHED_ENCODER = ("h264_nvenc", "p1") # p1=max quality, p7=max speed
             return CACHED_ENCODER
         
         if "h264_amf" in output:
@@ -125,12 +125,13 @@ def generate_short_fallback(input_file, output_file, index, project_folder, fina
         '-c:v', encoder_name,
         '-preset', encoder_preset,
         '-pix_fmt', 'yuv420p',
-        output_file
     ]
-    
-    # If using hardware encoder, we might want to set bitrate to ensure quality
-    if "nvenc" in encoder_name or "amf" in encoder_name:
-         ffmpeg_cmd.extend(["-b:v", "5M"])
+
+    # NVENC quality-based variable bitrate (CQ 19 = quasi-lossless)
+    if "nvenc" in encoder_name:
+        ffmpeg_cmd.extend(["-rc:v", "vbr", "-cq", "19", "-maxrate", "8M"])
+
+    ffmpeg_cmd.append(output_file)
     
     process = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE)
 
@@ -172,7 +173,7 @@ def finalize_video(input_file, output_file, index, fps, project_folder, final_fo
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-stats",
             "-i", output_file,
             "-i", audio_file,
-            "-c:v", encoder_name, "-preset", encoder_preset, "-b:v", "5M",
+            "-c:v", encoder_name, "-preset", encoder_preset, "-rc:v", "vbr", "-cq", "19", "-maxrate", "8M",
             "-c:a", "aac", "-b:a", "192k",
             "-r", str(fps),
             final_output
@@ -345,7 +346,7 @@ def generate_short_mediapipe(input_file, output_file, index, face_mode, project_
             last_frame_face_positions = current_faces
 
             if hasattr(current_faces, '__len__') and len(current_faces) == 2:
-                 result = crop_and_resize_two_faces(frame, current_faces)
+                 result = crop_and_resize_two_faces(frame, current_faces, zoom_out_factor=zoom_out_factor)
             else:
                  # Ensure it's list of tuples or single tuple? current_faces is list of tuples from detection
                  # If 1 face: [ (x,y,w,h) ]
@@ -474,7 +475,7 @@ def generate_short_haar(input_file, output_file, index, project_folder, final_fo
 
     finalize_video(input_file, output_file, index, fps, project_folder, final_folder)
 
-def generate_short_insightface(input_file, output_file, index, project_folder, final_folder, face_mode="auto", detection_period=None, filter_threshold=0.35, two_face_threshold=0.60, confidence_threshold=0.30, dead_zone=40, focus_active_speaker=False, active_speaker_mar=0.03, active_speaker_score_diff=1.5, include_motion=False, active_speaker_motion_deadzone=3.0, active_speaker_motion_sensitivity=0.05, active_speaker_decay=2.0, no_face_mode="padding"):
+def generate_short_insightface(input_file, output_file, index, project_folder, final_folder, face_mode="auto", detection_period=None, filter_threshold=0.35, two_face_threshold=0.60, confidence_threshold=0.30, dead_zone=40, focus_active_speaker=False, active_speaker_mar=0.03, active_speaker_score_diff=1.5, include_motion=False, active_speaker_motion_deadzone=3.0, active_speaker_motion_sensitivity=0.05, active_speaker_decay=2.0, no_face_mode="padding", zoom_out_factor=2.2):
     """Face detection using InsightFace (SOTA)."""
     print(f"Processing (InsightFace): {input_file} | Mode: {face_mode}")
     
@@ -985,7 +986,7 @@ def generate_short_insightface(input_file, output_file, index, project_folder, f
              f2 = current_faces[1]
              rect1 = (f1[0], f1[1], f1[2]-f1[0], f1[3]-f1[1])
              rect2 = (f2[0], f2[1], f2[2]-f2[0], f2[3]-f2[1])
-             result = crop_and_resize_two_faces(frame, [rect1, rect2])
+             result = crop_and_resize_two_faces(frame, [rect1, rect2], zoom_out_factor=zoom_out_factor)
              timeline_frames.append((frame_index, "2"))
         else:
              frame_1_face_count += 1
@@ -1084,7 +1085,7 @@ def generate_short_insightface(input_file, output_file, index, project_folder, f
     return "1"
 
 
-def edit(project_folder="tmp", face_model="insightface", face_mode="auto", detection_period=None, filter_threshold=0.35, two_face_threshold=0.60, confidence_threshold=0.30, dead_zone=40, focus_active_speaker=False, active_speaker_mar=0.03, active_speaker_score_diff=1.5, include_motion=False, active_speaker_motion_deadzone=3.0, active_speaker_motion_sensitivity=0.05, active_speaker_decay=2.0, segments_data=None, no_face_mode="padding"):
+def edit(project_folder="tmp", face_model="insightface", face_mode="auto", detection_period=None, filter_threshold=0.35, two_face_threshold=0.60, confidence_threshold=0.30, dead_zone=40, focus_active_speaker=False, active_speaker_mar=0.03, active_speaker_score_diff=1.5, include_motion=False, active_speaker_motion_deadzone=3.0, active_speaker_motion_sensitivity=0.05, active_speaker_decay=2.0, segments_data=None, no_face_mode="padding", zoom_out_factor=2.2):
     # Lazy init solutions only when needed to avoid AttributeError if import failed partially
     mp_face_detection = None
     mp_face_mesh = None
@@ -1186,7 +1187,8 @@ def edit(project_folder="tmp", face_model="insightface", face_mode="auto", detec
                                                      active_speaker_motion_deadzone=active_speaker_motion_deadzone,
                                                      active_speaker_motion_sensitivity=active_speaker_motion_sensitivity,
                                                      active_speaker_decay=active_speaker_decay,
-                                                     no_face_mode=no_face_mode)
+                                                     no_face_mode=no_face_mode,
+                                                     zoom_out_factor=zoom_out_factor)
                     if res: detected_mode = res
                     success = True
                 except Exception as e:
