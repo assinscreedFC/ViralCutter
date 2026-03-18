@@ -108,6 +108,27 @@ def detect_face_or_body(frame, face_detection, face_mesh, pose):
     return detections if detections else None
 
 
+def crop_to_smart_region(frame: np.ndarray, center_x: int, center_y: int) -> np.ndarray:
+    """
+    Crop 9:16 centré sur un point d'intérêt (saillance ou mouvement).
+    Utilisé par les modes no_face_mode='saliency' et 'motion'.
+    """
+    frame_height, frame_width = frame.shape[:2]
+    target_ar = 9 / 16
+
+    if frame_width / frame_height > target_ar:
+        new_width = int(frame_height * target_ar)
+        new_height = frame_height
+    else:
+        new_width = frame_width
+        new_height = int(frame_width / target_ar)
+
+    crop_x = max(0, min(center_x - new_width // 2, frame_width - new_width))
+    crop_y = max(0, min(center_y - new_height // 2, frame_height - new_height))
+    crop_img = frame[crop_y:crop_y + new_height, crop_x:crop_x + new_width]
+    return cv2.resize(crop_img, (1080, 1920), interpolation=cv2.INTER_AREA)
+
+
 def crop_center_zoom(frame):
     """
     Crops the center of the frame to fill 9:16 aspect ratio (Zoom effect).

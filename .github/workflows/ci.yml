@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install test dependencies
+        run: pip install pytest python-dotenv google-genai g4f requests
+
+      - name: Lint with ruff (non-blocking)
+        run: |
+          pip install ruff
+          ruff check . --select E,F,W --ignore E501,E402,F401 --exit-zero
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short

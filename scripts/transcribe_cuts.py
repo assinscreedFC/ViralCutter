@@ -1,6 +1,9 @@
+import logging
 import os
 import subprocess
 import sys
+
+logger = logging.getLogger(__name__)
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -11,7 +14,7 @@ def transcribe(project_folder="tmp"):
 
         # Skip processing if the JSON file already exists
         if os.path.exists(json_file):
-            print(f"Arquivo já existe, pulando: {json_file}")
+            logger.info(f"Arquivo já existe, pulando: {json_file}")
             return
 
         command = [
@@ -30,15 +33,15 @@ def transcribe(project_folder="tmp"):
             "--output_format", "json",
         ]
 
-        print(f"Transcrevendo: {input_file}...")
-        result = subprocess.run(command, shell=True, text=True, capture_output=True)
-        print(f"Comando executado: {command}")
+        logger.info(f"Transcrevendo: {input_file}...")
+        result = subprocess.run(command, text=True, capture_output=True)
+        logger.info(f"Comando executado: {command}")
         
         if result.returncode != 0:
-            print("Erro durante a transcrição:")
-            print(result.stderr)
+            logger.error("Erro durante a transcrição:")
+            logger.error(result.stderr)
         else:
-            print(f"Transcrição concluída. Arquivo salvo em: {output_file} e {json_file}")
+            logger.info(f"Transcrição concluída. Arquivo salvo em: {output_file} e {json_file}")
             # print(result.stdout) 
 
     # Define o diretório de entrada e o diretório de saída
@@ -47,7 +50,7 @@ def transcribe(project_folder="tmp"):
     os.makedirs(output_folder, exist_ok=True)
 
     if not os.path.exists(input_folder):
-        print(f"Pasta de entrada não encontrada: {input_folder}")
+        logger.error(f"Pasta de entrada não encontrada: {input_folder}")
         return
 
     # Itera sobre todos os arquivos na pasta de entrada

@@ -13,11 +13,14 @@ Moods reconnus (générés par le LLM via MUSIC_RULES_TEMPLATE) :
 =============================================================================
 """
 
+import logging
 import os
 import subprocess
 import json
 import random
 import time
+
+logger = logging.getLogger(__name__)
 
 try:
     from scripts.fetch_music import fetch_music, DEFAULT_MUSIC_DIR, needs_refresh
@@ -117,7 +120,7 @@ def build_music_metadata_cache(music_dir: str, force: bool = False) -> dict:
             bpm = _compute_bpm(full_path)
             energy = _compute_energy(full_path)
             cache[filename] = {"bpm": bpm, "energy": energy, "scanned_at": now}
-            print(f"[MUSIC] Scanned: {filename} BPM={bpm:.0f} energy={energy:.4f}")
+            logger.info(f"[MUSIC] Scanned: {filename} BPM={bpm:.0f} energy={energy:.4f}")
             updated = True
 
     if updated:
@@ -125,7 +128,7 @@ def build_music_metadata_cache(music_dir: str, force: bool = False) -> dict:
             with open(_cache_path(music_dir), "w", encoding="utf-8") as f:
                 json.dump(cache, f, indent=2)
         except Exception as e:
-            print(f"[WARN] Impossible de sauvegarder le cache metadata: {e}")
+            logger.warning(f"[WARN] Impossible de sauvegarder le cache metadata: {e}")
 
     return cache
 
@@ -138,7 +141,7 @@ def _compute_bpm(audio_path: str) -> float:
         tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
         return float(tempo[0]) if hasattr(tempo, "__len__") else float(tempo)
     except Exception as e:
-        print(f"[WARN] BPM detection failed for {os.path.basename(audio_path)}: {e}")
+        logger.warning(f"BPM detection failed for {os.path.basename(audio_path)}: {e}")
         return 0.0
 
 
@@ -209,7 +212,7 @@ def select_music_by_mood(
         return None
 
     if not HAS_LIBROSA:
-        print("[INFO] librosa non installé — sélection aléatoire")
+        logger.info("[INFO] librosa non installé — sélection aléatoire")
         candidates = [f for f in audio_files if f not in (exclude or set())]
         return os.path.join(music_dir, random.choice(candidates or audio_files))
 
@@ -239,7 +242,7 @@ def select_music_by_mood(
 
     scored.sort(key=lambda x: x[1], reverse=True)
     best = scored[0]
-    print(
+    logger.info(
         f"[MUSIC] mood={mood or 'neutral'} → {best[0]} "
         f"(score={best[1]:.2f}, BPM={best[2]:.0f}, energy={best[3]:.4f})"
     )
@@ -316,12 +319,12 @@ def mix_music_to_clip(
         return True
 
     except subprocess.CalledProcessError as e:
-        print(f"[ERROR] Échec mix musique pour {os.path.basename(clip_path)}: {e}")
+        logger.error(f"[ERROR] Échec mix musique pour {os.path.basename(clip_path)}: {e}")
         if e.stderr:
-            print(f"  ffmpeg: {e.stderr[:200]}")
+            logger.info(f"  ffmpeg: {e.stderr[:200]}")
         return False
     except Exception as e:
-        print(f"[ERROR] {e}")
+        logger.error(f"[ERROR] {e}")
         return False
 
 
@@ -355,7 +358,7 @@ def add_music_to_project(
     source_folder = burned_folder if os.path.exists(burned_folder) else final_folder
 
     if not os.path.exists(source_folder):
-        print(f"[ERROR] Aucun dossier de clips trouvé: {source_folder}")
+        logger.error(f"[ERROR] Aucun dossier de clips trouvé: {source_folder}")
         return
 
     output_folder = os.path.join(project_folder, "with_music")
@@ -402,16 +405,16 @@ def add_music_to_project(
             )
 
         if not selected_music:
-            print(f"[WARN] Aucune musique disponible pour {clip_name}")
+            logger.warning(f"[WARN] Aucune musique disponible pour {clip_name}")
             continue
 
         used_tracks.add(os.path.basename(selected_music))
-        print(f"[MUSIC] {clip_name} — mood={mood or 'auto'} → {os.path.basename(selected_music)}")
+        logger.info(f"[MUSIC] {clip_name} — mood={mood or 'auto'} → {os.path.basename(selected_music)}")
 
         if mix_music_to_clip(clip_path, selected_music, output_path, music_volume):
             success_count += 1
 
-    print(f"[MUSIC] Terminé: {success_count}/{len(clips)} clips dans {output_folder}")
+    logger.info(f"[MUSIC] Terminé: {success_count}/{len(clips)} clips dans {output_folder}")
 
 
 if __name__ == "__main__":
@@ -428,7 +431,7 @@ if __name__ == "__main__":
 
     if args.rebuild_cache:
         d = args.music_dir or DEFAULT_MUSIC_DIR
-        print(f"[MUSIC] Reconstruction du cache metadata dans {d}")
+        logger.info(f"[MUSIC] Reconstruction du cache metadata dans {d}")
         build_music_metadata_cache(d, force=True)
     else:
         add_music_to_project(args.project_folder, args.music_dir, args.music_file, args.volume)

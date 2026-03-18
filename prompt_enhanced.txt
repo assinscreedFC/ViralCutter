@@ -16,17 +16,23 @@ The transcript below is a continuous text stream with embedded **Time Tags** lik
     -   **ALWAYS** start with a Hook: A strong statement, a question, or an action verb.
     -   *Bad Start:* "(10s) So, I was thinking..."
     -   *Good Start:* "(12s) I almost died yesterday."
+    -   **RETENTION REALITY**: TikTok viewers watch only ~15% of total duration on average. You have **3 seconds maximum** to create an IRRESISTIBLE ANCHOR. If the first words don't force the viewer to stop scrolling, the clip is worthless.
+    -   The opening line must deliver IMMEDIATE VALUE: shocking stat, provocative claim, direct challenge, or unresolved tension — **before any context or setup**.
 
 2.  **THE "STANDALONE" TEST:**
     -   Can this segment be shown to a stranger without ANY context?
     -   If it contains "That's why *he* said that" (and "he" is unknown), it FAILS. Eliminate or expand context.
 
 3.  **NARRATIVE ARC:**
-    -   **Start:** Hook (0-3s).
+    -   **Start — THE ANCHOR (0-3s):** The viewer decides in 3 seconds. Hook must answer "why watch this RIGHT NOW?" Use: shocking statement / direct question / provocative claim / unresolved tension. Never start with setup or context.
     -   **Middle:** Value/Story (Retain attention).
     -   **End:** Punchline/Conclusion (Satisfying ending). NEVER cut mid-sentence.
 
-4.  **DURATION MATH:**
+4.  **SUBTITLE LANGUAGE:**
+    -   If source audio/transcript is in English (or any non-French language): subtitles MUST be in French (translated). Add `"subtitle_language": "fr"` in JSON output.
+    -   If source is French: `"subtitle_language": "fr"` (default). Non-negotiable: French audience always gets French subtitles.
+
+5.  **DURATION MATH:**
     -   Use the `(XXs)` tags to estimate duration.
     -   CONSTRAINT: Segment MUST be between {min_duration}s and {max_duration}s.
 

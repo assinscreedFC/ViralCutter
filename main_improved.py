@@ -9,10 +9,16 @@ import warnings
 warnings.filterwarnings("ignore")
 
 import json
+import logging
 import shutil
 import subprocess
 import argparse
 import time
+from typing import Optional
+
+logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(name)s: %(message)s')
+logger = logging.getLogger(__name__)
+
 from scripts import (
     download_video,
     transcribe_video,
@@ -43,7 +49,7 @@ COLORS = {
     "grey": "808080",     # Grey
 }
 
-def get_subtitle_config(config_path=None):
+def get_subtitle_config(config_path: Optional[str] = None) -> dict:
     """
     Returns the subtitle configuration dictionary.
     Can be expanded to load from a JSON/YAML file in the future.
@@ -82,24 +88,24 @@ def get_subtitle_config(config_path=None):
             with open(config_path, 'r', encoding='utf-8') as f:
                 loaded_config = json.load(f)
                 config.update(loaded_config)
-                print(i18n("Loaded subtitle config from {}").format(config_path))
+                logger.info(i18n("Loaded subtitle config from {}").format(config_path))
         except Exception as e:
-            print(i18n("Error loading subtitle config: {}. Using defaults.").format(e))
+            logger.error(i18n("Error loading subtitle config: {}. Using defaults.").format(e))
     
     return config
 
-def interactive_input_int(prompt_text):
+def interactive_input_int(prompt_text: str) -> int:
     """Solicita um inteiro ao usuário via terminal."""
     while True:
         try:
             value = int(input(i18n(prompt_text)))
             if value > 0:
                 return value
-            print(i18n("\nError: Number must be greater than 0."))
+            logger.error(i18n("Error: Number must be greater than 0."))
         except ValueError:
-            print(i18n("\nError: The value you entered is not an integer. Please try again."))
+            logger.error(i18n("Error: The value you entered is not an integer. Please try again."))
 
-def main():
+def main() -> None:
     # Configuração de Argumentos via Linha de Comando (CLI)
     parser = argparse.ArgumentParser(description="ViralCutter CLI")
     parser.add_argument("--url", help="YouTube Video URL")
@@ -122,7 +128,7 @@ def main():
     parser.add_argument("--face-model", choices=["insightface", "mediapipe"], default="insightface", help="Face detection model")
     parser.add_argument("--face-mode", choices=["auto", "1", "2"], default="auto", help="Face tracking mode: auto, 1, 2")
     parser.add_argument("--subtitle-config", help="Path to subtitle configuration JSON file")
-    parser.add_argument("--no-face-mode", choices=["padding", "zoom"], default="padding", help="Method to handle segments with no face detected: 'padding' (9:16 frame with black bars) or 'zoom' (Center Crop Zoom)")
+    parser.add_argument("--no-face-mode", choices=["padding", "zoom", "saliency", "motion"], default="padding", help="Method to handle segments with no face detected: 'padding' (black bars), 'zoom' (center crop), 'saliency' (spectral residual), 'motion' (motion tracking)")
     parser.add_argument("--face-detect-interval", type=str, default="0.17,1.0", help="Face detection interval in seconds. Single value or 'interval_1face,interval_2face'")
     parser.add_argument("--face-filter-threshold", type=float, default=0.35, help="Relative area threshold to ignore background faces (default: 0.35)")
     parser.add_argument("--face-two-threshold", type=float, default=0.60, help="Relative area threshold to trigger 2-face mode (default: 0.60)")
@@ -139,7 +145,7 @@ def main():
     parser.add_argument("--video-quality", choices=["best", "1080p", "720p", "480p"], default="best", help="Video download quality")
     parser.add_argument("--skip-youtube-subs", action="store_true", help="Skip downloading YouTube subtitles")
     parser.add_argument("--translate-target", help="Target language code for subtitle translation (e.g. 'pt', 'en').")
-    parser.add_argument("--content-type", choices=["auto", "comedy", "commentary", "cooking", "education", "gaming", "motivation", "music", "news", "podcast", "sport", "talkshow", "vlog"], action="append", dest="content_type", default=None, help="Content type for adaptive prompts, repeatable for multi-label (e.g. --content-type gaming --content-type comedy)")
+    parser.add_argument("--content-type", choices=["auto", "anime", "comedy", "commentary", "cooking", "education", "gaming", "manga", "motivation", "music", "news", "podcast", "sport", "talkshow", "vlog"], action="append", dest="content_type", default=None, help="Content type for adaptive prompts, repeatable for multi-label (e.g. --content-type gaming --content-type comedy)")
     parser.add_argument("--enable-scoring", action="store_true", help="Enable LLM scoring pass to filter low-quality segments")
     parser.add_argument("--min-score", type=int, default=70, help="Minimum viral score to keep a segment (0-100, default: 70)")
     parser.add_argument("--zoom-out-factor", type=float, default=2.2, help="Zoom out factor for 2-face mode (default: 2.2)")
@@ -151,6 +157,8 @@ def main():
     parser.add_argument("--distraction-dir", help="Directory with distraction videos (default: distraction/)")
     parser.add_argument("--distraction-file", help="Specific distraction video to use")
     parser.add_argument("--distraction-no-fetch", action="store_true", help="Disable auto-fetch of distraction videos (use cache only)")
+    parser.add_argument("--distraction-ratio", type=float, default=0.35,
+                        help="Part de la hauteur de l'écran pour la distraction (0.20-0.50, défaut 0.35)")
 
     args = parser.parse_args()
     
@@ -167,7 +175,7 @@ def main():
     burn_only_mode = args.burn_only
 
     if burn_only_mode:
-        print(i18n("Burn only mode activated. Switching to Workflow 3..."))
+        logger.info(i18n("Burn only mode activated. Switching to Workflow 3..."))
         workflow_choice = "3"
 
     # Obtenção de Inputs (CLI ou Interativo)
@@ -178,7 +186,7 @@ def main():
     # Se project_path for fornecido, ignoramos URL
     if project_path_arg:
         if os.path.exists(project_path_arg):
-             print(i18n("Using provided project path: {}").format(project_path_arg))
+             logger.info(i18n("Using provided project path: {}").format(project_path_arg))
              # Tentar achar o input.mp4 pra manter compatibilidade de variaveis, embora Workflow 3 não precise de download
              possible_input = os.path.join(project_path_arg, "input.mp4")
              if os.path.exists(possible_input):
@@ -189,13 +197,13 @@ def main():
              
              # Se for workflow 3, não precisamos de URL
         else:
-             print(i18n("Error: Provided project path does not exist."))
+             logger.error(i18n("Error: Provided project path does not exist."))
              sys.exit(1)
 
     # Se não temos URL via CLI nem Project Path, pedimos agora
     if not url and not project_path_arg:
         if args.skip_prompts:
-             print(i18n("No URL provided and skipping prompts. Trying to load latest project..."))
+             logger.info(i18n("No URL provided and skipping prompts. Trying to load latest project..."))
              # Fallthrough to project loading logic
         else:
             user_input = input(i18n("Enter the YouTube video URL (or press Enter to use latest project): ")).strip()
@@ -212,15 +220,15 @@ def main():
                 detected_video = os.path.join(latest_project, "input.mp4")
                 if os.path.exists(detected_video):
                     input_video = detected_video
-                    print(i18n("Using latest project: {}").format(latest_project))
+                    logger.info(i18n("Using latest project: {}").format(latest_project))
                 else:
-                    print(i18n("Latest project found but 'input.mp4' is missing."))
+                    logger.error(i18n("Latest project found but 'input.mp4' is missing."))
                     sys.exit(1)
             else:
-                print(i18n("No existing projects found in VIRALS folder."))
+                logger.error(i18n("No existing projects found in VIRALS folder."))
                 sys.exit(1)
         else:
-             print(i18n("VIRALS folder not found. Cannot load latest project."))
+             logger.error(i18n("VIRALS folder not found. Cannot load latest project."))
              sys.exit(1)
 
     # -------------------------------------------------------------------------
@@ -235,7 +243,7 @@ def main():
         viral_segments_file = os.path.join(project_folder_anticipated, "viral_segments.txt")
         
         if os.path.exists(viral_segments_file):
-             print(i18n("\nExisting viral segments found: {}").format(viral_segments_file))
+             logger.info(i18n("Existing viral segments found: {}").format(viral_segments_file))
              if args.skip_prompts:
                  use_existing_json = 'yes'
              else:
@@ -245,13 +253,13 @@ def main():
                 try:
                     with open(viral_segments_file, 'r', encoding='utf-8') as f:
                         viral_segments = json.load(f)
-                    print(i18n("Loaded existing viral segments. Skipping configuration prompts."))
+                    logger.info(i18n("Loaded existing viral segments. Skipping configuration prompts."))
                     if viral_segments and "segments" in viral_segments:
-                        print(f"DEBUG: Loaded {len(viral_segments['segments'])} segments from file.")
+                        logger.debug(f"Loaded {len(viral_segments['segments'])} segments from file.")
                     else:
-                        print("DEBUG: Loaded JSON but 'segments' key is missing or empty.")
+                        logger.debug("Loaded JSON but 'segments' key is missing or empty.")
                 except Exception as e:
-                    print(i18n("Error loading JSON: {}.").format(e))
+                    logger.error(i18n("Error loading JSON: {}.").format(e))
 
     # Variaveis de config de IA (só necessárias se não tivermos os segmentos)
     num_segments = None
@@ -264,7 +272,7 @@ def main():
         num_segments = args.segments
         if not num_segments:
             if args.skip_prompts:
-                print(i18n("No segments count provided and skip-prompts is ON. Using default 3."))
+                logger.info(i18n("No segments count provided and skip-prompts is ON. Using default 3."))
                 num_segments = 3
             else:
                 num_segments = interactive_input_int("Enter the number of viral segments to create: ")
@@ -272,7 +280,7 @@ def main():
         viral_mode = args.viral
         if not args.viral and not args.themes:
             if args.skip_prompts:
-                print(i18n("Viral mode not set, defaulting to True."))
+                logger.info(i18n("Viral mode not set, defaulting to True."))
                 viral_mode = True
             else:
                 response = input(i18n("Do you want viral mode? (yes/no): ")).lower()
@@ -284,7 +292,7 @@ def main():
                  themes = input(i18n("Enter themes (comma-separated, leave blank if viral mode is True): "))
 
         # Duration Config
-        print(i18n("\nCurrent duration settings: {}s - {}s").format(args.min_duration, args.max_duration))
+        logger.info(i18n("Current duration settings: {}s - {}s").format(args.min_duration, args.max_duration))
         if not args.skip_prompts:
             change_dur = input(i18n("Change duration? (y/n) [default: n]: ")).strip().lower()
             if change_dur in ['y', 'yes']:
@@ -295,7 +303,7 @@ def main():
                      max_d = input(i18n("Maximum duration [{}]: ").format(args.max_duration)).strip()
                      if max_d: args.max_duration = int(max_d)
                  except ValueError:
-                     print(i18n("Invalid number. Using previous values."))
+                     logger.warning(i18n("Invalid number. Using previous values."))
 
         # Load API Config
         config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'api_config.json')
@@ -304,7 +312,7 @@ def main():
             try:
                 with open(config_path, 'r', encoding='utf-8') as f:
                     api_config = json.load(f)
-            except:
+            except (json.JSONDecodeError, OSError):
                 pass
 
         # Seleção do Backend de IA
@@ -313,18 +321,18 @@ def main():
         # Try to load backend from config if not in args
         if not ai_backend and api_config.get("selected_api"):
             ai_backend = api_config.get("selected_api")
-            print(i18n("Using AI Backend from config: {}").format(ai_backend))
+            logger.info(i18n("Using AI Backend from config: {}").format(ai_backend))
 
         if not ai_backend:
             if args.skip_prompts:
-                print(i18n("No AI backend selected, defaulting to Manual."))
+                logger.info(i18n("No AI backend selected, defaulting to Manual."))
                 ai_backend = "manual"
             else:
-                print("\n" + i18n("Select AI Backend for Viral Analysis:"))
-                print(i18n("1. Gemini API (Best / Recommended)"))
-                print(i18n("2. G4F (Free / Experimental)"))
-                print(i18n("3. Local (GGUF via llama.cpp)"))
-                print(i18n("4. Manual (Copy/Paste Prompt)"))
+                logger.info(i18n("Select AI Backend for Viral Analysis:"))
+                logger.info(i18n("1. Gemini API (Best / Recommended)"))
+                logger.info(i18n("2. G4F (Free / Experimental)"))
+                logger.info(i18n("3. Local (GGUF via llama.cpp)"))
+                logger.info(i18n("4. Manual (Copy/Paste Prompt)"))
                 choice = input(i18n("Choose (1-4): ")).strip()
                 
                 if choice == "1":
@@ -340,24 +348,24 @@ def main():
                     models = [f for f in os.listdir(models_dir) if f.endswith(".gguf")]
                     
                     if not models:
-                        print(i18n("\nNo .gguf models found in 'models' directory."))
-                        print(i18n("Please place a module file in: {}").format(models_dir))
-                        print(i18n("Falling back to Manual..."))
+                        logger.warning(i18n("No .gguf models found in 'models' directory."))
+                        logger.info(i18n("Please place a module file in: {}").format(models_dir))
+                        logger.info(i18n("Falling back to Manual..."))
                         ai_backend = "manual"
                     else:
-                        print(i18n("\nAvailable Models:"))
+                        logger.info(i18n("Available Models:"))
                         for idx, m in enumerate(models):
-                            print(f"{idx+1}. {m}")
+                            logger.info(f"{idx+1}. {m}")
                         
                         try:
                             m_idx = int(input(i18n("Select Model (Number): "))) - 1
                             if 0 <= m_idx < len(models):
                                 args.ai_model_name = models[m_idx] # Set global arg
                             else:
-                                print(i18n("Invalid selection. Using first model."))
+                                logger.warning(i18n("Invalid selection. Using first model."))
                                 args.ai_model_name = models[0]
-                        except:
-                             print(i18n("Invalid input. Using first model."))
+                        except (ValueError, IndexError):
+                             logger.warning(i18n("Invalid input. Using first model."))
                              args.ai_model_name = models[0]
                              
                 else:
@@ -372,9 +380,9 @@ def main():
         
         if ai_backend == "gemini" and not api_key:
              if args.skip_prompts:
-                 print(i18n("Gemini API key missing, but skip-prompts is ON. Might fail."))
+                 logger.warning(i18n("Gemini API key missing, but skip-prompts is ON. Might fail."))
              else:
-                 print(i18n("Gemini API Key not found in api_config.json or arguments."))
+                 logger.warning(i18n("Gemini API Key not found in api_config.json or arguments."))
                  api_key = input(i18n("Enter your Gemini API Key: ")).strip()
 
     # Si les segments étaient déjà chargés, ai_backend est resté "manual" car le bloc de config a été sauté.
@@ -443,26 +451,26 @@ def main():
 
     if not args.burn_only and not args.skip_prompts:
         # Interactive Face Config
-        print(i18n("\n--- Face Detection Settings ---"))
-        print(i18n("Current Face Model: {} | Mode: {}").format(face_model, face_mode))
+        logger.info(i18n("--- Face Detection Settings ---"))
+        logger.info(i18n("Current Face Model: {} | Mode: {}").format(face_model, face_mode))
         
         if detection_intervals:
-             print(i18n("Custom detection intervals: {}").format(detection_intervals))
+             logger.info(i18n("Custom detection intervals: {}").format(detection_intervals))
         else:
-             print(i18n("Using dynamic intervals: 1s for 2-face, ~0.16s for 1-face."))
+             logger.info(i18n("Using dynamic intervals: 1s for 2-face, ~0.16s for 1-face."))
 
 
     # Pipeline Execution
     try:
         # 1. Download & Project Setup
-        print(f"DEBUG: Checking input_video state. input_video={input_video}")
+        logger.debug(f"Checking input_video state. input_video={input_video}")
         
         if not input_video:
             if not url:
-                print(i18n("Error: No URL provided and no existing video selected."))
+                logger.error(i18n("Error: No URL provided and no existing video selected."))
                 sys.exit(1)
                 
-            print(i18n("Starting download..."))
+            logger.info(i18n("Starting download..."))
             download_subs = not args.skip_youtube_subs
             download_result = download_video.download(url, download_subs=download_subs, quality=args.video_quality)
             
@@ -472,23 +480,23 @@ def main():
                 input_video = download_result
                 project_folder = os.path.dirname(input_video)
                 
-            print(f"DEBUG: Download finished. input_video={input_video}, project_folder={project_folder}")
+            logger.debug(f"Download finished. input_video={input_video}, project_folder={project_folder}")
             
         else:
             # Reuso de video existente
-            print("DEBUG: Using existing video logic.")
+            logger.debug("Using existing video logic.")
             project_folder = os.path.dirname(input_video)
             
-        print(f"Project Folder: {project_folder}")
+        logger.info(f"Project Folder: {project_folder}")
         
         # 2. Transcribe
         if workflow_choice == "3":
-            print(i18n("Workflow 3: Skipping Transcribe."))
+            logger.info(i18n("Workflow 3: Skipping Transcribe."))
             # We assume transcription exists (SRT/JSON) or we won't need it for 'adjust_subtitles' if it uses 'subs/*.json' which are created by 'cut_segments'
             # Actually 'adjust_subtitles' reads from 'project_folder/subs'.
             # viral_segments = True # Removed to avoid overwritting dict loaded earlier
         else:
-            print(i18n("Transcribing with model {}...").format(args.model))
+            logger.info(i18n("Transcribing with model {}...").format(args.model))
             # Se skip config, args.model é default
             srt_file, tsv_file = transcribe_video.transcribe(input_video, args.model, project_folder=project_folder)
  
@@ -499,24 +507,24 @@ def main():
                 # Checagem tardia para downloads novos que por acaso ja tenham json (Ex: URL repetida)
                 viral_segments_file_late = os.path.join(project_folder, "viral_segments.txt")
                 if os.path.exists(viral_segments_file_late):
-                    print(i18n("Found existing viral segments file at {}").format(viral_segments_file_late))
+                    logger.info(i18n("Found existing viral segments file at {}").format(viral_segments_file_late))
                     if args.skip_prompts:
-                        print(i18n("Skipping prompts enabled. Loading existing segments."))
+                        logger.info(i18n("Skipping prompts enabled. Loading existing segments."))
                         try:
                             with open(viral_segments_file_late, 'r', encoding='utf-8') as f:
                                 viral_segments = json.load(f)
                         except Exception as e:
-                            print(i18n("Error loading existing JSON: {}. Proceeding to create new segments.").format(e))
+                            logger.error(i18n("Error loading existing JSON: {}. Proceeding to create new segments.").format(e))
                     else:
-                        print(i18n("Loading existing viral segments found at {}").format(viral_segments_file_late))
+                        logger.info(i18n("Loading existing viral segments found at {}").format(viral_segments_file_late))
                         try:
                             with open(viral_segments_file_late, 'r', encoding='utf-8') as f:
                                 viral_segments = json.load(f)
                         except Exception as e:
-                            print(i18n("Error loading existing JSON: {}.").format(e))
+                            logger.error(i18n("Error loading existing JSON: {}.").format(e))
                     
                 if not viral_segments:
-                    print(i18n("Creating viral segments using {}...").format(ai_backend.upper()))
+                    logger.info(i18n("Creating viral segments using {}...").format(ai_backend.upper()))
                     # args.content_type est None ou une liste (action="append")
                     # Filtrer "auto" et normaliser
                     raw_ct = args.content_type or []
@@ -538,9 +546,9 @@ def main():
                     )
                 
                 if not viral_segments or not viral_segments.get("segments"):
-                    print(i18n("Error: No viral segments were generated."))
-                    print(i18n("Possible reasons: API error, Model not found, or empty response."))
-                    print(i18n("Stopping execution."))
+                    logger.error(i18n("Error: No viral segments were generated."))
+                    logger.error(i18n("Possible reasons: API error, Model not found, or empty response."))
+                    logger.error(i18n("Stopping execution."))
                     sys.exit(1)
                 
                 save_json.save_viral_segments(viral_segments, project_folder=project_folder) 
@@ -554,7 +562,7 @@ def main():
                  # If duration is effectively 0 and we have a ref tag (or even if we dont, we cant cut 0s video)
                  # We assume if duration is 0, it is raw.
                  if first.get("duration", 0) == 0:
-                      print(i18n("Detected raw AI segments without timestamps (Duration 0). Running alignment..."))
+                      logger.info(i18n("Detected raw AI segments without timestamps (Duration 0). Running alignment..."))
                       try:
                           # Load transcript
                           transcript = create_viral_segments.load_transcript(project_folder)
@@ -568,16 +576,16 @@ def main():
                               output_count=None 
                           )
                           save_json.save_viral_segments(viral_segments, project_folder=project_folder)
-                          print(i18n("Segments aligned and saved."))
+                          logger.info(i18n("Segments aligned and saved."))
                       except Exception as e:
-                          print(i18n("Failed to align raw segments: {}").format(e))
+                          logger.error(i18n("Failed to align raw segments: {}").format(e))
                           # If alignment fails, it might crash later, but we tried. 
 
         # 3.6. Génération des captions TikTok (seulement si au moins un segment n'en a pas)
         _segs_for_caption = viral_segments.get("segments", []) if viral_segments else []
         _needs_captions = any(not s.get("tiktok_caption") for s in _segs_for_caption)
         if viral_segments and workflow_choice != "3" and ai_backend in ("pleiade", "gemini", "g4f") and _needs_captions:
-            print(i18n("Generating TikTok captions..."))
+            logger.info(i18n("Generating TikTok captions..."))
             try:
                 transcript_for_captions = create_viral_segments.load_transcript(project_folder)
                 transcript_text = create_viral_segments.preprocess_transcript_for_ai(transcript_for_captions)
@@ -586,16 +594,17 @@ def main():
                     transcript_text,
                     ai_mode=ai_backend,
                     api_key=api_key,
-                    model_name=args.ai_model_name
+                    model_name=args.ai_model_name,
+                    content_type=viral_segments.get("content_type")
                 )
                 save_json.save_viral_segments(viral_segments, project_folder=project_folder)
             except Exception as e:
-                print(f"[WARN] TikTok caption generation failed: {e}")
+                logger.warning(f"TikTok caption generation failed: {e}")
 
         # 4. Cut Segments
         # Se workflow for 3, pulamos corte
         if workflow_choice == "3":
-            print(i18n("Workflow 3 (Subtitles Only): Skipping Cut and Edit."))
+            logger.info(i18n("Workflow 3 (Subtitles Only): Skipping Cut and Edit."))
             # Deduzir cuts folder apenas para log
             cuts_folder = os.path.join(project_folder, "cuts")
         else:
@@ -603,7 +612,7 @@ def main():
             skip_cutting = False
             
             if os.path.exists(cuts_folder) and os.listdir(cuts_folder):
-                print(i18n("\nExisting cuts found in: {}").format(cuts_folder))
+                logger.info(i18n("Existing cuts found in: {}").format(cuts_folder))
                 if args.skip_prompts:
                     cut_again_resp = 'no'
                 else:
@@ -614,26 +623,26 @@ def main():
                     skip_cutting = True
             
             if skip_cutting:
-                print(i18n("Skipping Video Rendering (using existing cuts), but updating Subtitle JSONs..."))
+                logger.info(i18n("Skipping Video Rendering (using existing cuts), but updating Subtitle JSONs..."))
             else:
-                print(i18n("Cutting segments..."))
+                logger.info(i18n("Cutting segments..."))
 
             cut_segments.cut(viral_segments, project_folder=project_folder, skip_video=skip_cutting)
         
         # 5. Workflow Check
         if workflow_choice == "2":
-            print(i18n("Cut Only selected. Skipping Face Crop and Subtitles."))
-            print(i18n(f"Process completed! Check your results in: {project_folder}"))
+            logger.info(i18n("Cut Only selected. Skipping Face Crop and Subtitles."))
+            logger.info(i18n(f"Process completed! Check your results in: {project_folder}"))
             sys.exit(0)
 
         # 5. Edit Video (Face Crop)
         if workflow_choice != "3":
-            print(i18n("Editing video with {} (Mode: {})...").format(face_model, face_mode))
+            logger.info(i18n("Editing video with {} (Mode: {})...").format(face_model, face_mode))
             
             # Parse dead zone safely
             try:
                 dead_zone_val = int(args.face_dead_zone)
-            except:
+            except (ValueError, TypeError):
                 dead_zone_val = 40
                 
             edit_video.edit(
@@ -659,14 +668,14 @@ def main():
 
 
         else:
-            print(i18n("Workflow 3: Skipping Face Crop."))
+            logger.info(i18n("Workflow 3: Skipping Face Crop."))
             # Rename existing files if viral_segments available (since edit_video didn't run)
             if viral_segments and "segments" in viral_segments:
                  segments_data = viral_segments.get("segments", [])
                  final_folder = os.path.join(project_folder, "final")
                  subs_folder = os.path.join(project_folder, "subs")
                  
-                 print(i18n("Renaming existing files with titles..."))
+                 logger.info(i18n("Renaming existing files with titles..."))
                  for idx, segment in enumerate(segments_data):
                      title = segment.get("title", f"Segment_{idx}")
                      safe_title = "".join([c for c in title if c.isalnum() or c in " _-"]).strip()
@@ -680,7 +689,7 @@ def main():
                      new_mp4_path = os.path.join(final_folder, f"{new_base_name}.mp4")
                      if os.path.exists(old_mp4_path) and not os.path.exists(new_mp4_path):
                          os.rename(old_mp4_path, new_mp4_path)
-                         print(f"Renamed (Workflow 3): {old_mp4_name} -> {new_base_name}.mp4")
+                         logger.info(f"Renamed (Workflow 3): {old_mp4_name} -> {new_base_name}.mp4")
 
                      # 2. JSON Sub
                      old_json_name = f"final-output{idx:03d}_processed.json"
@@ -688,7 +697,7 @@ def main():
                      new_json_path = os.path.join(subs_folder, f"{new_base_name}_processed.json")
                      if os.path.exists(old_json_path) and not os.path.exists(new_json_path):
                          os.rename(old_json_path, new_json_path)
-                         print(f"Renamed (Workflow 3): {old_json_name} -> {new_base_name}_processed.json")
+                         logger.info(f"Renamed (Workflow 3): {old_json_name} -> {new_base_name}_processed.json")
                          
                      # 3. Timeline
                      old_tl_name = f"temp_video_no_audio_{idx}_timeline.json"
@@ -696,50 +705,50 @@ def main():
                      new_tl_path = os.path.join(final_folder, f"{new_base_name}_timeline.json")
                      if os.path.exists(old_tl_path) and not os.path.exists(new_tl_path):
                          os.rename(old_tl_path, new_tl_path)
-                         print(f"Renamed (Workflow 3): {old_tl_name} -> {new_base_name}_timeline.json")
+                         logger.info(f"Renamed (Workflow 3): {old_tl_name} -> {new_base_name}_timeline.json")
 
         # 6. Subtitles
         burn_subtitles_option = True 
         if burn_subtitles_option:
-            print(i18n("Processing subtitles..."))
+            logger.info(i18n("Processing subtitles..."))
             # transcribe_cuts removido: JSON de legenda já é gerado no corte
             # transcribe_cuts.transcribe(project_folder=project_folder)
             
             # --- Translation Integration ---
             if args.translate_target and args.translate_target.lower() != "none":
-                 print(i18n("Translating subtitles to: {}").format(args.translate_target))
+                 logger.info(i18n("Translating subtitles to: {}").format(args.translate_target))
                  import asyncio
                  try:
                     asyncio.run(translate_json.translate_project_subs(project_folder, args.translate_target))
                  except Exception as e:
-                    print(i18n("Translation failed: {}").format(e))
+                    logger.error(i18n("Translation failed: {}").format(e))
             # -------------------------------
 
             sub_config = get_subtitle_config(args.subtitle_config)
 
-            # Split-screen auto-adjust: place subtitles near the split line.
-            # ASS PlayResY=640. In the final 1080×1920 composite, split at y=960.
-            # MarginV=340 → text bottom at 340/640*1920=1020px from bottom → 900px from top → 60px above split. ✓
-            # Subs are burned AFTER distraction so the math is correct on the composite video.
+            # Split-screen auto-adjust: place subtitles exactement sur la ligne de coupure.
+            # ASS PlayResY=640. Formule : int(620 * (1 - distraction_ratio))
+            #   ratio=0.50 → 310 (split à y≈960px), ratio=0.35 → 403, ratio=0.30 → 434
             if getattr(args, 'add_distraction', False):
-                sub_config['vertical_position'] = 310
+                _ratio = getattr(args, 'distraction_ratio', 0.5)
+                sub_config['vertical_position'] = int(620 * (1 - _ratio))
 
             # Genera arquivos .ass
             try:
                 adjust_subtitles.adjust(project_folder=project_folder, **sub_config)
             except FileNotFoundError as fnf_error:
-                print(i18n("\n[ERROR] Subtitle processing failed: {}").format(str(fnf_error)))
-                print(i18n("Tip: If you are using Workflow 3 (Subtitles Only), ensure the 'subs' folder exists and contains valid JSON files."))
+                logger.error(i18n("[ERROR] Subtitle processing failed: {}").format(str(fnf_error)))
+                logger.info(i18n("Tip: If you are using Workflow 3 (Subtitles Only), ensure the 'subs' folder exists and contains valid JSON files."))
                 sys.exit(1)
             except Exception as e:
-                print(i18n("\n[ERROR] Unexpected error during subtitle processing: {}").format(str(e)))
+                logger.error(i18n("[ERROR] Unexpected error during subtitle processing: {}").format(str(e)))
                 raise e
         else:
-            print(i18n("Subtitle burning skipped."))
+            logger.info(i18n("Subtitle burning skipped."))
 
         # --- Ajout musique de fond (optionnel) ---
         if args.add_music:
-            print(i18n("Adding background music..."))
+            logger.info(i18n("Adding background music..."))
             try:
                 _segs = viral_segments.get("segments", []) if viral_segments else []
                 add_music.add_music_to_project(
@@ -750,13 +759,13 @@ def main():
                     segments=_segs,
                 )
             except Exception as e:
-                print(f"[WARN] Music addition failed: {e}")
+                logger.warning(f"Music addition failed: {e}")
 
         # --- Split-screen distraction (optionnel) ---
         # Note: distraction est appliquée AVANT burn_subtitles pour que les subs soient
         # brûlés directement sur la vidéo composite (évite le décalage dû au crop centré).
         if args.add_distraction:
-            print("Adding split-screen distraction video...")
+            logger.info("Adding split-screen distraction video...")
             try:
                 from scripts.add_distraction_video import add_distraction_to_project
                 from scripts.add_distraction_video import DEFAULT_DISTRACTION_DIR as _DIST_DIR
@@ -768,9 +777,10 @@ def main():
                     # Mode 2 faces : visage du haut à Y=480 → top crop (y=0) pour éviter qu'il soit coupé
                     # Mode 1 face : visage à Y=960 (centre) → crop centré par défaut (None)
                     main_crop_y=0 if getattr(args, 'face_mode', '1') == '2' else None,
+                    distraction_ratio=getattr(args, 'distraction_ratio', 0.35),
                 )
             except Exception as e:
-                print(f"[WARN] Split-screen distraction failed: {e}")
+                logger.warning(f"Split-screen distraction failed: {e}")
 
         # --- Burn subtitles ---
         if burn_subtitles_option:
@@ -790,7 +800,7 @@ def main():
                 else:
                     burn_subtitles.burn(project_folder=project_folder)
             except Exception as e:
-                print(i18n("\n[ERROR] Unexpected error during subtitle burning: {}").format(str(e)))
+                logger.error(i18n("[ERROR] Unexpected error during subtitle burning: {}").format(str(e)))
                 raise e
 
         # Organização Final (Opcional, pois agora já está tudo em project_folder)
@@ -844,16 +854,16 @@ def main():
             config_save_path = os.path.join(project_folder, "process_config.json")
             with open(config_save_path, "w", encoding="utf-8") as f:
                 json.dump(final_config, f, indent=4, ensure_ascii=False)
-            print(i18n("Configuration saved to: {}").format(config_save_path))
+            logger.info(i18n("Configuration saved to: {}").format(config_save_path))
             
         except Exception as e:
-            print(i18n("Error saving configuration JSON: {}").format(e))
+            logger.error(i18n("Error saving configuration JSON: {}").format(e))
         # -------------------------------------
 
-        print(i18n("Process completed! Check your results in: {}").format(project_folder))
+        logger.info(i18n("Process completed! Check your results in: {}").format(project_folder))
 
     except Exception as e:
-        print(i18n("\nAn error occurred: {}").format(str(e)))
+        logger.error(i18n("An error occurred: {}").format(str(e)))
         import traceback
         traceback.print_exc()
         sys.exit(1)

@@ -20,11 +20,14 @@ Usage CLI :
 =============================================================================
 """
 
+import logging
 import os
 import subprocess
 import json
 import time
 import argparse
+
+logger = logging.getLogger(__name__)
 
 # Dossier de destination par défaut
 DEFAULT_MUSIC_DIR = os.path.join(
@@ -138,7 +141,7 @@ def download_from_source(source: dict, music_dir: str, count: int) -> int:
     Retourne le nombre de nouvelles pistes ajoutées.
     """
     os.makedirs(music_dir, exist_ok=True)
-    print(f"[MUSIC] Téléchargement depuis : {source['name']} ({count} pistes max)")
+    logger.info(f"[MUSIC] Téléchargement depuis : {source['name']} ({count} pistes max)")
 
     output_template = os.path.join(music_dir, "%(title).60s.%(ext)s")
 
@@ -164,19 +167,19 @@ def download_from_source(source: dict, music_dir: str, count: int) -> int:
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if result.returncode not in (0, 1):  # 1 = erreurs partielles tolérées
-            print(f"[WARN] yt-dlp exit {result.returncode} : {result.stderr[:300]}")
+            logger.warning(f"[WARN] yt-dlp exit {result.returncode} : {result.stderr[:300]}")
     except subprocess.TimeoutExpired:
-        print(f"[WARN] Timeout téléchargement {source['name']}")
+        logger.warning(f"[WARN] Timeout téléchargement {source['name']}")
     except FileNotFoundError:
-        print("[ERROR] yt-dlp introuvable. Installe avec : pip install yt-dlp")
+        logger.error("[ERROR] yt-dlp introuvable. Installe avec : pip install yt-dlp")
         return 0
 
     after = set(_music_files_in(music_dir))
     new_files = after - before
     if new_files:
         for f in sorted(new_files):
-            print(f"[MUSIC]   + {os.path.basename(f)}")
-    print(f"[MUSIC] {len(new_files)} nouvelles pistes depuis {source['name']}")
+            logger.info(f"[MUSIC]   + {os.path.basename(f)}")
+    logger.info(f"[MUSIC] {len(new_files)} nouvelles pistes depuis {source['name']}")
     return len(new_files)
 
 
@@ -208,7 +211,7 @@ def fetch_music(
 
     if not force and not needs_refresh(music_dir):
         next_in = FETCH_INTERVAL_HOURS - hours_ago
-        print(
+        logger.info(
             f"[MUSIC] Cache OK — {len(existing)} pistes, "
             f"prochain refresh dans {next_in:.1f}h"
         )
@@ -219,7 +222,7 @@ def fetch_music(
     per_source = count if count is not None else (DEFAULT_COUNT if is_first else EXPAND_COUNT)
 
     reason = "premier remplissage" if is_first else f"expansion +24h ({hours_ago:.1f}h écoulées)"
-    print(f"[MUSIC] {reason.capitalize()} — {per_source} pistes/source")
+    logger.info(f"[MUSIC] {reason.capitalize()} — {per_source} pistes/source")
 
     total = 0
     for source in sources:
@@ -228,7 +231,7 @@ def fetch_music(
     _write_last_fetch(music_dir)
 
     final_count = len(_music_files_in(music_dir))
-    print(f"[MUSIC] Cache total : {final_count} pistes dans {music_dir}")
+    logger.info(f"[MUSIC] Cache total : {final_count} pistes dans {music_dir}")
     return total
 
 
@@ -247,7 +250,7 @@ if __name__ == "__main__":
 
     if args.list_sources:
         for s in MUSIC_SOURCES:
-            print(f"  - {s['name']}  ({s['count']} pistes/fetch)  {s['url']}")
+            logger.info(f"  - {s['name']}  ({s['count']} pistes/fetch)  {s['url']}")
 
     elif args.status:
         d = args.music_dir
@@ -255,10 +258,10 @@ if __name__ == "__main__":
         hours = _hours_since_last_fetch(d)
         last_str = f"{hours:.1f}h ago" if hours < float("inf") else "jamais"
         next_str = f"dans {FETCH_INTERVAL_HOURS - hours:.1f}h" if hours < FETCH_INTERVAL_HOURS else "maintenant"
-        print(f"[MUSIC] Dossier   : {d}")
-        print(f"[MUSIC] Pistes    : {len(files)}")
-        print(f"[MUSIC] Dernier fetch : {last_str}")
-        print(f"[MUSIC] Prochain  : {next_str}")
+        logger.info(f"[MUSIC] Dossier   : {d}")
+        logger.info(f"[MUSIC] Pistes    : {len(files)}")
+        logger.info(f"[MUSIC] Dernier fetch : {last_str}")
+        logger.info(f"[MUSIC] Prochain  : {next_str}")
 
     else:
         fetch_music(args.music_dir, force=args.force, count=args.count)

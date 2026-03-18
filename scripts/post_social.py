@@ -19,6 +19,8 @@ import concurrent.futures
 import json
 import logging
 import os
+import subprocess
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -30,6 +32,67 @@ logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CREDENTIALS_DIR = os.path.join(_PROJECT_ROOT, "credentials")
+
+
+# ── Pre-upload validation ─────────────────────────────────────────────────────
+
+def validate_clip_for_upload(clip_path: str) -> list[str]:
+    """Vérifie qu'un clip est valide pour upload (durée, dimensions, audio).
+
+    Returns:
+        Liste de warnings (vide = OK). Ne bloque pas l'upload.
+    """
+    warnings: list[str] = []
+    try:
+        cmd = ["ffprobe", "-v", "quiet", "-print_format", "json",
+               "-show_format", "-show_streams", clip_path]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        data = json.loads(result.stdout)
+
+        duration = float(data.get("format", {}).get("duration", 0))
+        if duration < 5:
+            warnings.append(f"Durée trop courte : {duration:.1f}s (min recommandé : 15s)")
+        elif duration > 600:
+            warnings.append(f"Durée trop longue : {duration:.1f}s (max TikTok : 600s)")
+
+        streams = data.get("streams", [])
+        video_streams = [s for s in streams if s.get("codec_type") == "video"]
+        audio_streams = [s for s in streams if s.get("codec_type") == "audio"]
+
+        if not audio_streams:
+            warnings.append("Aucune piste audio détectée.")
+
+        if video_streams:
+            w = int(video_streams[0].get("width", 0))
+            h = int(video_streams[0].get("height", 0))
+            if w > 1080 or h > 1920:
+                warnings.append(f"Dimensions {w}×{h} dépassent 1080×1920.")
+    except Exception as e:
+        warnings.append(f"Impossible de valider le clip : {e}")
+
+    return warnings
+
+
+# ── Retry helper ──────────────────────────────────────────────────────────────
+
+def _upload_with_retry(upload_fn, max_retries: int = 3, base_delay: float = 30.0) -> dict:
+    """Exécute upload_fn avec retry exponentiel sur exception.
+
+    Retourne le résultat de upload_fn (dict) dès que status != 'failed',
+    ou le dernier résultat d'erreur après épuisement des tentatives.
+    """
+    last_result: dict = {}
+    for attempt in range(max_retries):
+        last_result = upload_fn()
+        if last_result.get("status") != "failed":
+            return last_result
+        if attempt < max_retries - 1:
+            delay = base_delay * (2 ** attempt)
+            logger.warning("[POST] Retry %d/%d dans %.0fs — %s",
+                           attempt + 1, max_retries, delay,
+                           last_result.get("error", "erreur inconnue"))
+            time.sleep(delay)
+    return last_result
 
 
 # ── Scheduling helpers ────────────────────────────────────────────────────────
@@ -74,17 +137,27 @@ def _calc_schedule_times(
 ) -> list[Optional[datetime]]:
     """Return a list of `count` scheduled datetimes.
 
-    If first_post_time is empty/invalid, all entries are None (= immediate).
-    Otherwise: segment 0 → first_post_time, segment 1 → + interval, etc.
+    If first_post_time is provided: seg 0 → first_post_time, seg 1 → + interval, etc.
+    If first_post_time is empty and interval > 0: seg 0 → None (immediate),
+        seg 1 → now + interval, seg 2 → now + 2*interval, etc.
+    If first_post_time is empty and interval == 0: all None (all immediate).
     """
     if not first_post_time or not first_post_time.strip():
-        return [None] * count
+        if interval_minutes <= 0 or count <= 1:
+            return [None] * count
+        # First post immediate, rest scheduled from now + interval (UTC)
+        now_utc = datetime.now(tz=timezone.utc)
+        return [None] + [
+            now_utc + timedelta(minutes=interval_minutes * i)
+            for i in range(1, count)
+        ]
 
     base = _parse_datetime(first_post_time)
     if base is None:
         return [None] * count
 
-    return [base + timedelta(minutes=interval_minutes * i) for i in range(count)]
+    # Convert to UTC — tiktok-uploader requires naive or UTC-aware datetimes
+    return [base.astimezone(timezone.utc) + timedelta(minutes=interval_minutes * i) for i in range(count)]
 
 
 # ── YouTube ───────────────────────────────────────────────────────────────────
@@ -242,10 +315,9 @@ def _tiktok_upload_worker(
         if c.get("name") and c.get("value")
     ]
 
-    # NOTE: tiktok-uploader schedule relies on fragile UI selectors that break
-    # when TikTok updates their interface. Schedule is intentionally not passed —
-    # videos post immediately. Use YouTube's API scheduling for reliable timing.
-    kwargs: dict = {"filename": video_path, "description": caption, "cookies_list": cookies_list}
+    kwargs: dict = {"filename": video_path, "description": caption, "cookies_list": cookies_list, "headless": False}
+    if schedule is not None:
+        kwargs["schedule"] = schedule
     upload_video(**kwargs)
 
 
@@ -393,23 +465,28 @@ def post_all_segments(
         else:
             logger.info("Segment %d/%d — posting immediately", i + 1, len(valid_segments))
 
+        # Validation pré-upload (warnings non bloquants)
+        clip_warnings = validate_clip_for_upload(video_path)
+        for w in clip_warnings:
+            logger.warning("[VALIDATE] Segment %d — %s", i + 1, w)
+
         if post_youtube:
-            res = upload_to_youtube(
+            res = _upload_with_retry(lambda: upload_to_youtube(
                 video_path=video_path,
                 title=title,
                 description=description,
                 privacy=youtube_privacy,
                 publish_at=publish_at,
-            )
+            ))
             results.append(res)
 
         if post_tiktok:
-            res = upload_to_tiktok(
+            res = _upload_with_retry(lambda: upload_to_tiktok(
                 video_path=video_path,
                 caption=tiktok_caption,
                 cookies_path=tiktok_cookies,
                 schedule=publish_at,
-            )
+            ))
             results.append(res)
 
     results_path = os.path.join(project_folder, "post_results.json")

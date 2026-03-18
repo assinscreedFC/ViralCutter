@@ -42,6 +42,8 @@ CALIBRATION NOTES:
 - A score of 70–84 = strong clip, likely to perform well
 - A score of 50–69 = decent clip, niche audience
 - Below 50 = skip it
+- DISTRIBUTION: if a segment is an outro (creator asks for likes/subscribe) or an ad/sponsor, penalize STANDALONE VALUE by -5 points minimum.
+- SKIP ADS: segments that are product placements or sponsor reads should score below 50.
 
 SEGMENTS TO SCORE:
 {segments_json}

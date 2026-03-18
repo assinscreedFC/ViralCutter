@@ -9,3 +9,6 @@ LR-ASD/
 music/
 distraction/
 VIRALS/
+credentials/
+recapmanga/*.json
+*.log

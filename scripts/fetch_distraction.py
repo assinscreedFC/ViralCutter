@@ -24,11 +24,14 @@ Usage CLI :
 =============================================================================
 """
 
+import logging
 import os
 import subprocess
 import random
 import time
 import argparse
+
+logger = logging.getLogger(__name__)
 
 # Dossier de destination par défaut
 DEFAULT_DISTRACTION_DIR = os.path.join(
@@ -159,7 +162,7 @@ def _download_search(query: str, distraction_dir: str) -> int:
     Retourne le nombre de nouvelles vidéos ajoutées.
     """
     os.makedirs(distraction_dir, exist_ok=True)
-    print(f"[DISTRACTION] Recherche : {query}")
+    logger.info(f"[DISTRACTION] Recherche : {query}")
 
     output_template = os.path.join(distraction_dir, "%(title).80s.%(ext)s")
 
@@ -180,18 +183,18 @@ def _download_search(query: str, distraction_dir: str) -> int:
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         if result.returncode not in (0, 1):
-            print(f"[WARN] yt-dlp exit {result.returncode} : {result.stderr[:300]}")
+            logger.warning(f"[WARN] yt-dlp exit {result.returncode} : {result.stderr[:300]}")
     except subprocess.TimeoutExpired:
-        print(f"[WARN] Timeout pour : {query}")
+        logger.warning(f"[WARN] Timeout pour : {query}")
     except FileNotFoundError:
-        print("[ERROR] yt-dlp introuvable. Installe avec : pip install yt-dlp")
+        logger.error("[ERROR] yt-dlp introuvable. Installe avec : pip install yt-dlp")
         return 0
 
     after = set(_video_files_in(distraction_dir))
     new_files = after - before
     for f in sorted(new_files):
-        print(f"[DISTRACTION]   + {os.path.basename(f)}")
-    print(f"[DISTRACTION] {len(new_files)} nouvelles vidéos via recherche")
+        logger.info(f"[DISTRACTION]   + {os.path.basename(f)}")
+    logger.info(f"[DISTRACTION] {len(new_files)} nouvelles vidéos via recherche")
     return len(new_files)
 
 
@@ -205,7 +208,7 @@ def _download_channel(source: dict, distraction_dir: str, count: int) -> int:
     Retourne le nombre de nouvelles vidéos ajoutées.
     """
     os.makedirs(distraction_dir, exist_ok=True)
-    print(f"[DISTRACTION] Chaîne : {source['name']} ({count} vidéos max)")
+    logger.info(f"[DISTRACTION] Chaîne : {source['name']} ({count} vidéos max)")
 
     output_template = os.path.join(distraction_dir, "%(title).80s.%(ext)s")
 
@@ -228,18 +231,18 @@ def _download_channel(source: dict, distraction_dir: str, count: int) -> int:
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         if result.returncode not in (0, 1):
-            print(f"[WARN] yt-dlp exit {result.returncode} : {result.stderr[:300]}")
+            logger.warning(f"[WARN] yt-dlp exit {result.returncode} : {result.stderr[:300]}")
     except subprocess.TimeoutExpired:
-        print(f"[WARN] Timeout pour : {source['name']}")
+        logger.warning(f"[WARN] Timeout pour : {source['name']}")
     except FileNotFoundError:
-        print("[ERROR] yt-dlp introuvable. Installe avec : pip install yt-dlp")
+        logger.error("[ERROR] yt-dlp introuvable. Installe avec : pip install yt-dlp")
         return 0
 
     after = set(_video_files_in(distraction_dir))
     new_files = after - before
     for f in sorted(new_files):
-        print(f"[DISTRACTION]   + {os.path.basename(f)}")
-    print(f"[DISTRACTION] {len(new_files)} nouvelles vidéos depuis {source['name']}")
+        logger.info(f"[DISTRACTION]   + {os.path.basename(f)}")
+    logger.info(f"[DISTRACTION] {len(new_files)} nouvelles vidéos depuis {source['name']}")
     return len(new_files)
 
 
@@ -268,7 +271,7 @@ def fetch_distraction(
 
     if not force and not needs_refresh(distraction_dir):
         next_in = FETCH_INTERVAL_HOURS - hours_ago
-        print(
+        logger.info(
             f"[DISTRACTION] Cache OK — {len(existing)} vidéos, "
             f"prochain refresh dans {next_in:.1f}h"
         )
@@ -278,7 +281,7 @@ def fetch_distraction(
     per_source = count if count is not None else (DEFAULT_COUNT if is_first else EXPAND_COUNT)
 
     reason = "premier remplissage" if is_first else f"expansion +48h ({hours_ago:.1f}h écoulées)"
-    print(f"[DISTRACTION] {reason.capitalize()} — mode={mode}, {per_source} vidéos")
+    logger.info(f"[DISTRACTION] {reason.capitalize()} — mode={mode}, {per_source} vidéos")
 
     total = 0
 
@@ -298,7 +301,7 @@ def fetch_distraction(
     _write_last_fetch(distraction_dir)
 
     final_count = len(_video_files_in(distraction_dir))
-    print(f"[DISTRACTION] Cache total : {final_count} vidéos dans {distraction_dir}")
+    logger.info(f"[DISTRACTION] Cache total : {final_count} vidéos dans {distraction_dir}")
     return total
 
 
@@ -321,11 +324,11 @@ if __name__ == "__main__":
         hours = _hours_since_last_fetch(d)
         last_str = f"{hours:.1f}h ago" if hours < float("inf") else "jamais"
         next_str = f"dans {FETCH_INTERVAL_HOURS - hours:.1f}h" if hours < FETCH_INTERVAL_HOURS else "maintenant"
-        print(f"[DISTRACTION] Dossier     : {d}")
-        print(f"[DISTRACTION] Vidéos      : {len(files)}")
-        print(f"[DISTRACTION] Dernier fetch : {last_str}")
-        print(f"[DISTRACTION] Prochain    : {next_str}")
+        logger.info(f"[DISTRACTION] Dossier     : {d}")
+        logger.info(f"[DISTRACTION] Vidéos      : {len(files)}")
+        logger.info(f"[DISTRACTION] Dernier fetch : {last_str}")
+        logger.info(f"[DISTRACTION] Prochain    : {next_str}")
         for f in sorted(files):
-            print(f"              - {os.path.basename(f)}")
+            logger.info(f"              - {os.path.basename(f)}")
     else:
         fetch_distraction(args.distraction_dir, force=args.force, count=args.count, mode=args.mode)

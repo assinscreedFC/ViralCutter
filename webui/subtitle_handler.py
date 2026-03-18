@@ -1,4 +1,5 @@
 
+import logging
 import os
 import re
 import subprocess
@@ -9,6 +10,8 @@ import sys
 sys.path.append(WORKING_DIR)
 from i18n.i18n import I18nAuto
 i18n = I18nAuto()
+
+logger = logging.getLogger(__name__)
 
 # Subtitle Presets
 SUBTITLE_PRESETS = {
@@ -301,7 +304,7 @@ def generate_preview_html(font, size, color, highlight, outline, outline_thick, 
                      # print(f"DEBUG_HTML: Sanitized {c} -> {ret}")
                      return ret
             except Exception as e:
-                print(f"DEBUG_HTML: Sanitize Error: {e}")
+                logger.debug(f"Sanitize Error: {e}")
                 pass
         
         # Ensure # prefix for standard hex if missing
@@ -414,12 +417,12 @@ def render_preview_video(font, size, color, highlight, outline, outline_thick, s
         try:
             with open("debug_preview.log", "a") as f:
                 f.write(f"PREVIEW INPUT: '{h}'\n")
-        except: pass
-        
+        except OSError: pass
+
         if not h: return "&H00FFFFFF&"
-        
+
         hex_clean = h.lstrip('#').strip()
-        
+
         # Handle rgb/rgba
         if hex_clean.lower().startswith("rgb"):
             try:
@@ -434,7 +437,7 @@ def render_preview_video(font, size, color, highlight, outline, outline_thick, s
                      g = max(0, min(255, g))
                      b = max(0, min(255, b))
                      return f"&H00{b:02X}{g:02X}{r:02X}&".upper()
-            except: pass
+            except (ValueError, IndexError): pass
             
         if len(hex_clean) == 3:
             hex_clean = "".join([c*2 for c in hex_clean])
@@ -455,7 +458,7 @@ def render_preview_video(font, size, color, highlight, outline, outline_thick, s
     
     json_template = os.path.join(CURRENT_DIR, "preview.json")
     if not os.path.exists(json_template):
-        print(f"Error: {json_template} not found.")
+        logger.error(f"Preview template not found: {json_template}")
         return None
         
     ass_path = os.path.join(preview_dir, "preview.ass")
@@ -528,13 +531,13 @@ def render_preview_video(font, size, color, highlight, outline, outline_thick, s
                     if f.startswith("preview_render_") and f.endswith(".mp4") and f != os.path.basename(cache_bust_path):
                         try:
                             os.remove(os.path.join(preview_dir, f))
-                        except: pass
-            except: pass
+                        except OSError: pass
+            except OSError: pass
             
             return gr.update(value=cache_bust_path, autoplay=True)
             
     except Exception as e:
-        print(f"Preview Gen Error: {e}")
+        logger.error(f"Preview Gen Error: {e}")
         import traceback
         traceback.print_exc()
         

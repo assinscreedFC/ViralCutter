@@ -1,9 +1,14 @@
+from __future__ import annotations
+
+import logging
 from scripts import cut_json
 import os
 import subprocess
 import json
 
-def cut(segments, project_folder="tmp", skip_video=False):
+logger = logging.getLogger(__name__)
+
+def cut(segments: dict | None, project_folder: str = "tmp", skip_video: bool = False) -> None:
 
     def check_nvenc_support():
         # ... (unchanged)
@@ -15,7 +20,7 @@ def cut(segments, project_folder="tmp", skip_video=False):
 
     def generate_segments(response, project_folder, skip_video):
         if not check_nvenc_support():
-            print("NVENC is not supported on this system. Falling back to libx264.")
+            logger.info("NVENC is not supported on this system. Falling back to libx264.")
             video_codec = "libx264"
         else:
             video_codec = "h264_nvenc"
@@ -28,7 +33,7 @@ def cut(segments, project_folder="tmp", skip_video=False):
             if os.path.exists(input_file_legacy):
                 input_file = input_file_legacy
             else:
-                print(f"Input file not found in {project_folder}")
+                logger.error(f"Input file not found in {project_folder}")
                 return
 
         # Pasta de saida para os cortes
@@ -84,7 +89,7 @@ def cut(segments, project_folder="tmp", skip_video=False):
                 try:
                     start_time_seconds = float(start_time)
                     start_time_str = f"{start_time_seconds:.3f}"
-                except:
+                except ValueError:
                     # Se for HH:MM:SS, ffmpeg aceita, mas precisamos converter para float para o json cutter
                     # Função auxiliar simples
                     h, m, s = str(start_time).split(':')
@@ -100,8 +105,8 @@ def cut(segments, project_folder="tmp", skip_video=False):
             output_filename = f"{base_name}_original_scale.mp4"
             output_path = os.path.join(cuts_folder, output_filename)
 
-            print(f"Processing segment {i+1}/{len(segments)}")
-            print(f"Start time: {start_time}, Duration: {duration}")
+            logger.info(f"Processing segment {i+1}/{len(segments)}")
+            logger.info(f"Start time: {start_time}, Duration: {duration}")
             # print(f"Executing command: {' '.join(command)}")
 
             # VIDEO GENERATION
@@ -140,11 +145,11 @@ def cut(segments, project_folder="tmp", skip_video=False):
                     subprocess.run(command, check=True, capture_output=True, text=True)
                     if os.path.exists(output_path):
                         file_size = os.path.getsize(output_path)
-                        print(f"Generated segment: {output_filename}, Size: {file_size} bytes")
+                        logger.info(f"Generated segment: {output_filename}, Size: {file_size} bytes")
                 except subprocess.CalledProcessError as e:
-                    print(f"Error executing ffmpeg: {e}")
+                    logger.error(f"Error executing ffmpeg: {e}")
             else:
-                print(f"Skipping video generation for {output_filename} (using existing). check json...")
+                logger.info(f"Skipping video generation for {output_filename} (using existing). check json...")
             
             # --- JSON CUTTING (ALWAYS RUN) ---
             end_time_seconds = start_time_seconds + float(duration_seconds)
@@ -156,7 +161,7 @@ def cut(segments, project_folder="tmp", skip_video=False):
             cut_json.cut_json_transcript(input_json_path, json_output_path, start_time_seconds, end_time_seconds)
             # --------------------
 
-            print("\n" + "="*50 + "\n")
+            logger.info("\n" + "="*50 + "\n")
 
     # Reading the JSON file if segments not provided (legacy behavior)
     if segments is None:

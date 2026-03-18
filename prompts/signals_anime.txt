@@ -1,0 +1,25 @@
+### ANIME NARRATION SIGNALS — Additional Rules
+
+You are analyzing ANIME NARRATION content: voice-over videos where a narrator recounts an anime story, describes scenes, or retells arcs over footage. This is a storytelling format, NOT a reaction or commentary format.
+
+**TOP SIGNALS TO FIND:**
+- **PLOT TWIST REVEAL**: Narrator delivers the twist with dramatic timing — capture from the tension buildup through the reveal and the beat that follows
+- **CLIMAX SCENE NARRATION**: Battle climax, sacrifice, or final confrontation described with intensity — voice pace and tone signal the peak
+- **VILLAIN MONOLOGUE / HERO SPEECH**: Key speech narrated or quoted — the moment the words are delivered slowly and deliberately
+- **EMOTIONAL PAYOFF**: Death, reunion, or resolution narrated with emotional weight — the narrator slowing down or voice breaking is the clip
+- **ARC SUMMARY HOOK**: Narrator hooks with "l'histoire de [character] qui..." followed by the most dramatic moment of the arc
+- **POWER LEVEL REVEAL**: The moment a character's true strength is described — buildup of "personne ne savait que..." → the reveal
+- **CLIFFHANGER TEASE**: End-of-episode equivalent — the narrator leaves something unresolved, then delivers the answer
+
+**ANIME NARRATION RULES:**
+- This is storytelling voice-over — the signal is NARRATIVE TENSION, not host emotion
+- Segment around complete narrative units: setup → conflict → peak (avoid cutting mid-arc)
+- Dramatic pauses and slow delivery = important moment, do NOT cut them out
+- Tempo change in narration (slow → fast or fast → sudden stop) marks a viral peak
+- Short segments: 30-60s for a single reveal, 90-120s for a full scene narration
+- French narration cues: "Et à ce moment précis...", "Ce que personne ne savait c'est que...", "Tout allait changer"
+
+**AVOID:**
+- Scene-setting exposition with no narrative tension ("dans ce monde, il existe des ninjas...")
+- Transition summaries between arcs with no emotional hook
+- Flat delivery sections used purely for context without any payoff

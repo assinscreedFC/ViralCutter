@@ -85,9 +85,9 @@ print("=" * 60)
 try:
     response = call_pleiade(prompt)
     # Extrait le think block séparément pour lisibilité
-    think_match = __import__('re').search(r'<think>(.*?)</think>', response, __import__('re').DOTALL)
+    think_match = re.search(r'<think>(.*?)</think>', response, re.DOTALL)
     think_text = think_match.group(1).strip() if think_match else ""
-    response_no_think = __import__('re').sub(r'<think>.*?</think>', '', response, flags=__import__('re').DOTALL).strip()
+    response_no_think = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL).strip()
 
     print(f"\nThink block ({len(think_text)} chars):\n{think_text[:600]}{'...' if len(think_text)>600 else ''}\n")
     print(f"Réponse (sans think, {len(response_no_think)} chars):\n{response_no_think[:600]}\n")

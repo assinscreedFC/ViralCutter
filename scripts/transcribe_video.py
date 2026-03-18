@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import logging
 import os
 import sys
 import torch
@@ -10,7 +13,9 @@ from i18n.i18n import I18nAuto
 
 i18n = I18nAuto()
 
-def apply_safe_globals_hack():
+logger = logging.getLogger(__name__)
+
+def apply_safe_globals_hack() -> None:
     """
     Workaround for 'Weights only load failed' error in newer PyTorch versions.
     We first try to add safe globals. If that's not enough/fails, we monkeypatch torch.load.
@@ -24,7 +29,7 @@ def apply_safe_globals_hack():
                 omegaconf.base.ContainerMetadata,
                 omegaconf.base.Node
             ])
-            print("Aplicado patch de segurança para globals do Omegaconf.")
+            logger.info("Aplicado patch de segurança para globals do Omegaconf.")
             
         # Monkeypatch agressivo para garantir compatibilidade com Pyannote/WhisperX antigos
         original_load = torch.load
@@ -34,27 +39,27 @@ def apply_safe_globals_hack():
             return original_load(*args, **kwargs)
             
         torch.load = safe_load
-        print("Aplicado monkeypatch em torch.load para forçar weights_only=False.")
+        logger.info("Aplicado monkeypatch em torch.load para forçar weights_only=False.")
         
     except ImportError:
         pass
     except Exception as e:
-        print(f"Aviso ao tentar aplicar patch de globals: {e}")
+        logger.warning(f"Aviso ao tentar aplicar patch de globals: {e}")
 
     try:
         import torchaudio
         if not hasattr(torchaudio, 'list_audio_backends'):
             torchaudio.list_audio_backends = lambda: []
-            print("Aplicado monkeypatch em torchaudio.list_audio_backends para PyTorch >= 2.4.")
+            logger.info("Aplicado monkeypatch em torchaudio.list_audio_backends para PyTorch >= 2.4.")
     except Exception as e:
         pass
 
-def parse_srt(srt_path):
+def parse_srt(srt_path: str) -> list[dict] | None:
     """
     Parses an SRT file into a list of segments expected by WhisperX alignment.
     [{'start': float, 'end': float, 'text': str}, ...]
     """
-    print(f"Parsing SRT: {srt_path}")
+    logger.info(f"Parsing SRT: {srt_path}")
     segments = []
     try:
         with open(srt_path, 'r', encoding='utf-8') as f:
@@ -95,15 +100,15 @@ def parse_srt(srt_path):
                         })
                     break
     except Exception as e:
-        print(f"Error parsing SRT {srt_path}: {e}")
+        logger.error(f"Error parsing SRT {srt_path}: {e}")
         return None
     return segments
 
-def parse_vtt(vtt_path):
+def parse_vtt(vtt_path: str) -> list[dict] | None:
     """
     Parses a VTT file (WebVTT) into valid segments for WhisperX.
     """
-    print(f"Parsing VTT: {vtt_path}")
+    logger.info(f"Parsing VTT: {vtt_path}")
     segments = []
     try:
         with open(vtt_path, 'r', encoding='utf-8') as f:
@@ -169,16 +174,16 @@ def parse_vtt(vtt_path):
                 })
 
     except Exception as e:
-        print(f"Error parsing VTT {vtt_path}: {e}")
+        logger.error(f"Error parsing VTT {vtt_path}: {e}")
         return None
     return segments
 
-def transcribe(input_file, model_name='large-v3', project_folder='tmp'):
-    print(i18n(f"Iniciando transcrição de {input_file}..."))
+def transcribe(input_file: str, model_name: str = 'large-v3', project_folder: str = 'tmp') -> tuple[str, str]:
+    logger.info(i18n(f"Iniciando transcrição de {input_file}..."))
     
     # Diagnóstico de Ambiente
-    print(f"DEBUG: Python: {sys.executable}")
-    print(f"DEBUG: Torch: {torch.__version__}")
+    logger.debug(f"DEBUG: Python: {sys.executable}")
+    logger.debug(f"DEBUG: Torch: {torch.__version__}")
     
     start_time = time.time()
     
@@ -197,19 +202,19 @@ def transcribe(input_file, model_name='large-v3', project_folder='tmp'):
 
     # Verifica se os arquivos já existem
     if os.path.exists(srt_file) and os.path.exists(tsv_file) and os.path.exists(json_file):
-        print(f"Os arquivos SRT, TSV e JSON já existem. Pulando a transcrição.")
+        logger.info(f"Os arquivos SRT, TSV e JSON já existem. Pulando a transcrição.")
         return srt_file, tsv_file
 
     # Device Setup
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"DEBUG: Usando dispositivo: {device}")
+    logger.debug(f"DEBUG: Usando dispositivo: {device}")
     compute_type = "float16" if device == "cuda" else "float32"
 
     try:
         apply_safe_globals_hack()
         
         # 1. Carregar Áudio (sempre necessário)
-        print(f"Carregando áudio: {input_file}")
+        logger.info(f"Carregando áudio: {input_file}")
         audio = whisperx.load_audio(input_file)
         
         # 2. Verificar se existem legendas baixadas para Alignment Only
@@ -229,7 +234,7 @@ def transcribe(input_file, model_name='large-v3', project_folder='tmp'):
 
         if potential_subs:
             sub_path = potential_subs[0]
-            print(f"Usando legenda fornecida: {sub_path}")
+            logger.info(f"Usando legenda fornecida: {sub_path}")
             
             if sub_path.endswith('.srt'):
                 parsed = parse_srt(sub_path)
@@ -244,22 +249,22 @@ def transcribe(input_file, model_name='large-v3', project_folder='tmp'):
                 
                 # Forçar EN conforme solicitado pelo usuário para alinhamento
                 detected_language = 'en'
-                print(f"Idioma forçado para alinhamento: {detected_language}")
+                logger.info(f"Idioma forçado para alinhamento: {detected_language}")
                 
-                print("--- MODO ALINHAMENTO RÁPIDO ATIVADO ---")
+                logger.info("--- MODO ALINHAMENTO RÁPIDO ATIVADO ---")
         
         result = None
         
         if alignment_only and start_segments:
             # Pular Transcrição, ir direto para Alinhamento
-            print("--- MODO ALINHAMENTO RÁPIDO ATIVADO ---")
+            logger.info("--- MODO ALINHAMENTO RÁPIDO ATIVADO ---")
             # Estrutura que o align espera: {'segments': [...], 'language': ...}
             # Mas o align recebe segments como lista.
             pass 
         else:
             # 3. Transcrever (Caminho Normal)
-            print("Nenhuma legenda válida encontrada. Realizando transcrição completa (WhisperX)...")
-            print(f"Carregando modelo {model_name}...")
+            logger.info("Nenhuma legenda válida encontrada. Realizando transcrição completa (WhisperX)...")
+            logger.info(f"Carregando modelo {model_name}...")
             model = whisperx.load_model(
                 model_name, 
                 device, 
@@ -283,7 +288,7 @@ def transcribe(input_file, model_name='large-v3', project_folder='tmp'):
                 torch.cuda.empty_cache()
 
         # 4. Alinhar (Sempre executado, seja com subs parsed ou transcritos)
-        print(f"Alinhando transcrição (Idioma: {detected_language}) para obter timestamps precisos...")
+        logger.info(f"Alinhando transcrição (Idioma: {detected_language}) para obter timestamps precisos...")
         # Usa o modelo específico solicitado pelo usuário: WAV2VEC2_ASR_LARGE_LV60K_960H
         # Mas o whisperx.load_align_model escolhe automaticamente baseado na linguagem.
         # Se for inglês, ele usa wav2vec2-large-960h-lv60-self geralmente.
@@ -303,17 +308,17 @@ def transcribe(input_file, model_name='large-v3', project_folder='tmp'):
                  torch.cuda.empty_cache()
                  
         except Exception as e:
-            print(f"Erro durante alinhamento: {e}. ")
+            logger.error(f"Erro durante alinhamento: {e}. ")
             if alignment_only:
-                 print("Falha crítica no alinhamento de legendas externas. Abortando usage de legendas externas.")
+                 logger.error("Falha crítica no alinhamento de legendas externas. Abortando usage de legendas externas.")
                  # Opcional: Fallback para transcrição normal se falhar? Seria complexo aqui pois já limpamos memória.
                  # Vamos apenas salvar o que temos (timestamps da legenda original podem não bater com áudio perfeitamente se não alinhar)
                  result = {"segments": start_segments, "language": detected_language}
             else:
-                 print("Continuando com transcrição bruta.")
+                 logger.info("Continuando com transcrição bruta.")
 
         # 5. Salvar Resultados
-        print("Salvando resultados...")
+        logger.info("Salvando resultados...")
         from whisperx.utils import get_writer
         
         save_options = {
@@ -338,15 +343,15 @@ def transcribe(input_file, model_name='large-v3', project_folder='tmp'):
         
         end_time = time.time()
         elapsed = end_time - start_time
-        print(f"Processamento concluído em {int(elapsed//60)}m {int(elapsed%60)}s.")
+        logger.info(f"Processamento concluído em {int(elapsed//60)}m {int(elapsed%60)}s.")
 
     except Exception as e:
-        print(f"ERRO CRÍTICO na transcrição: {e}")
+        logger.error(f"ERRO CRÍTICO na transcrição: {e}")
         import traceback
         traceback.print_exc()
         raise
 
     if not os.path.exists(srt_file):
-        print(f"AVISO: Arquivo SRT {srt_file} não encontrado após execução.")
+        logger.warning(f"AVISO: Arquivo SRT {srt_file} não encontrado após execução.")
     
     return srt_file, tsv_file

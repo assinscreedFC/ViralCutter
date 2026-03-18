@@ -1,5 +1,6 @@
 import os
 import sys
+import logging
 import warnings
 warnings.filterwarnings("ignore")
 os.environ["PYTHONWARNINGS"] = "ignore"
@@ -18,6 +19,8 @@ import uvicorn
 
 
 import re
+
+logger = logging.getLogger(__name__)
 import library # Module for Library Logic
 import subtitle_handler as subs # Module for Subtitles
 import subtitle_editor as editor # Module for Editor Logic
@@ -129,7 +132,8 @@ def generate_captions_for_project(proj_name: str):
 
         # Générer les captions
         updated = create_viral_segments.generate_tiktok_captions(
-            segments, transcript_text, ai_mode=ai_mode, api_key=api_key, model_name=model_name
+            segments, transcript_text, ai_mode=ai_mode, api_key=api_key, model_name=model_name,
+            content_type=viral_segments.get("content_type")
         )
         viral_segments["segments"] = updated
         save_json.save_viral_segments(viral_segments, project_folder=project_folder)
@@ -146,7 +150,7 @@ def convert_color_to_ass(hex_color, alpha="00"):
     try:
         with open("debug_colors.log", "a") as f:
              f.write(f"INPUT: '{hex_color}'\n")
-    except: pass
+    except OSError: pass  # debug log write failure is non-critical
 
     if not hex_color:
         return f"&H{alpha}FFFFFF&"
@@ -171,13 +175,13 @@ def convert_color_to_ass(hex_color, alpha="00"):
                 try:
                     with open("debug_colors.log", "a") as f:
                          f.write(f"PARSED RGB: {ret}\n")
-                except: pass
+                except OSError: pass  # debug log write failure is non-critical
                 return ret
         except Exception as e:
             try:
                 with open("debug_colors.log", "a") as f:
                      f.write(f"RGB ERROR: {e}\n")
-            except: pass
+            except OSError: pass  # debug log write failure is non-critical
 
     # Handle 3-digit hex (e.g. F00 -> FF0000)
     if len(hex_clean) == 3:
@@ -192,13 +196,13 @@ def convert_color_to_ass(hex_color, alpha="00"):
         try:
             with open("debug_colors.log", "a") as f:
                  f.write(f"PARSED HEX: {ret}\n")
-        except: pass
+        except OSError: pass  # debug log write failure is non-critical
         return ret
-        
+
     try:
         with open("debug_colors.log", "a") as f:
              f.write(f"INVALID: Defaulting to White\n")
-    except: pass
+    except OSError: pass  # debug log write failure is non-critical
     return f"&H{alpha}FFFFFF&"
 
 def kill_process():
@@ -287,7 +291,7 @@ SETTINGS_KEYS = [
     "underline", "strikeout", "border_style", "remove_punc",
     "video_quality", "use_youtube_subs", "translate_target",
     "add_music", "music_dir", "music_file", "music_volume",
-    "add_distraction", "distraction_dir", "distraction_file", "distraction_no_fetch",
+    "add_distraction", "distraction_dir", "distraction_file", "distraction_no_fetch", "distraction_ratio",
     "post_youtube", "post_tiktok", "youtube_privacy", "post_interval_minutes", "post_first_time",
 ]
 
@@ -317,7 +321,7 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
                      use_custom_subs, font_name, font_size, font_color, highlight_color, outline_color, outline_thickness, shadow_color, shadow_size, is_bold, is_italic, is_uppercase, vertical_pos, alignment,
                      h_size, w_block, gap, mode, under, strike, border_s, remove_punc, video_quality, use_youtube_subs, translate_target,
                      add_music, music_dir, music_file, music_volume,
-                     add_distraction, distraction_dir, distraction_file, distraction_no_fetch,
+                     add_distraction, distraction_dir, distraction_file, distraction_no_fetch, distraction_ratio,
                      post_youtube, post_tiktok, youtube_privacy, post_interval_minutes, post_first_time):
     
     global current_process
@@ -434,12 +438,19 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
         if distraction_dir: cmd.extend(["--distraction-dir", distraction_dir])
         if distraction_file: cmd.extend(["--distraction-file", distraction_file])
         if distraction_no_fetch: cmd.append("--distraction-no-fetch")
+        if distraction_ratio is not None: cmd.extend(["--distraction-ratio", str(distraction_ratio)])
 
     cmd.append("--skip-prompts") # Always skip prompts in WebUI to prevent freezing
 
     if use_custom_subs:
-        # En mode distraction, forcer les subs près de la ligne de coupure (PlayResY=640, split à y=320)
-        effective_vertical_pos = 340 if add_distraction else vertical_pos
+        # En mode distraction, placer les subs exactement sur la ligne de coupure.
+        # PlayResY=640. Formule : int(620 * (1 - ratio))
+        #   ratio=0.50 → 310 (split à y≈960px), ratio=0.35 → 403, ratio=0.30 → 434
+        if add_distraction:
+            _ratio = distraction_ratio if distraction_ratio is not None else 0.5
+            effective_vertical_pos = int(620 * (1 - _ratio))
+        else:
+            effective_vertical_pos = vertical_pos
         subtitle_config = {
             "font": font_name, "base_size": int(font_size), "base_color": convert_color_to_ass(font_color), "highlight_color": convert_color_to_ass(highlight_color),
             "outline_color": convert_color_to_ass(outline_color), "outline_thickness": outline_thickness, "shadow_color": convert_color_to_ass(shadow_color),
@@ -676,9 +687,9 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     with gr.Accordion(i18n("Advanced AI Settings"), open=False):
                         content_type_input = gr.Dropdown(
                             choices=[
-                                ("Comedy", "comedy"), ("Commentary", "commentary"),
+                                ("Anime", "anime"), ("Comedy", "comedy"), ("Commentary", "commentary"),
                                 ("Cooking", "cooking"), ("Education", "education"),
-                                ("Gaming", "gaming"), ("Motivation", "motivation"),
+                                ("Gaming", "gaming"), ("Manga", "manga"), ("Motivation", "motivation"),
                                 ("Music", "music"), ("News", "news"),
                                 ("Podcast", "podcast"), ("Sport", "sport"),
                                 ("Talk Show", "talkshow"), ("Vlog", "vlog"),
@@ -713,7 +724,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     with gr.Row():
                         face_mode_input = gr.Dropdown(choices=[(i18n("Auto"), "auto"), ("1", "1"), ("2", "2")], label=i18n("Face Mode"), value="auto")
                         face_detect_interval_input = gr.Textbox(label=i18n("Face Det. Interval"), value="0.17,1.0")
-                        no_face_mode_input = gr.Dropdown(choices=[(i18n("Padding (9:16)"), "padding"), (i18n("Zoom (Center)"), "zoom")], label=i18n("No Face Fallback"), value="zoom")
+                        no_face_mode_input = gr.Dropdown(choices=[(i18n("Padding (9:16)"), "padding"), (i18n("Zoom (Center)"), "zoom"), (i18n("Saliency (Anime/Manga)"), "saliency"), (i18n("Motion (Stickman/Action)"), "motion")], label=i18n("No Face Fallback"), value="zoom", info=i18n("'Saliency' detects visually interesting regions (static panels). 'Motion' follows movement (stickman animations)."))
                     
                     
                     # Update listeners now that all components are defined
@@ -835,18 +846,25 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                      info=i18n("Stack a satisfying/gameplay video below the main clip (1080×1920 output). Subtitle position is automatically adjusted to appear at the split line.")
                  )
                  with gr.Row(visible=False) as distraction_options_row:
-                     distraction_dir_input = gr.Textbox(
-                         label=i18n("Distraction Folder"), placeholder="distraction/", value="",
-                         info=i18n("Folder with distraction videos (auto-downloaded to distraction/ by default)")
-                     )
-                     distraction_file_input = gr.Textbox(
-                         label=i18n("Specific Distraction File"), placeholder="path/to/video.mp4", value="",
-                         info=i18n("Force a specific video instead of random selection")
-                     )
-                     distraction_no_fetch_input = gr.Checkbox(
-                         label=i18n("Disable auto-fetch (use cache only)"), value=False,
-                         info=i18n("Never download distraction videos, use whatever is already in the cache")
-                     )
+                     with gr.Column():
+                         distraction_ratio_input = gr.Slider(
+                             label=i18n("Distraction Height (%)"),
+                             minimum=0.20, maximum=0.50, value=0.35, step=0.05,
+                             info=i18n("Share of screen height for the bottom distraction video (default 35%)")
+                         )
+                         distraction_no_fetch_input = gr.Checkbox(
+                             label=i18n("Disable auto-fetch (use cache only)"), value=False,
+                             info=i18n("Never download distraction videos, use whatever is already in the cache")
+                         )
+                     with gr.Column():
+                         distraction_dir_input = gr.Textbox(
+                             label=i18n("Distraction Folder"), placeholder="distraction/", value="",
+                             info=i18n("Folder with distraction videos (auto-downloaded to distraction/ by default)")
+                         )
+                         distraction_file_input = gr.Textbox(
+                             label=i18n("Specific Distraction File"), placeholder="path/to/video.mp4", value="",
+                             info=i18n("Force a specific video instead of random selection")
+                         )
                  add_distraction_input.change(lambda x: gr.update(visible=x), inputs=add_distraction_input, outputs=distraction_options_row)
 
              with gr.Accordion(i18n("Auto Post"), open=False):
@@ -871,7 +889,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  )
                  post_interval_input = gr.Number(
                      label=i18n("Interval between posts (minutes)"),
-                     value=30, minimum=1, maximum=1440,
+                     value=30, minimum=0, maximum=1440,
                      info=i18n("Wait this many minutes between each video posted")
                  )
                  post_youtube_input.change(
@@ -936,7 +954,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  # Music
                  add_music_input, music_dir_input, music_file_input, music_volume_input,
                  # Split-screen distraction
-                 add_distraction_input, distraction_dir_input, distraction_file_input, distraction_no_fetch_input,
+                 add_distraction_input, distraction_dir_input, distraction_file_input, distraction_no_fetch_input, distraction_ratio_input,
                  # Auto Post
                  post_youtube_input, post_tiktok_input, youtube_privacy_input, post_interval_input, post_first_time_input,
              ], outputs=[logs_output, start_btn, stop_btn, results_html])
@@ -959,7 +977,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  underline_input, strikeout_input, border_style_input, remove_punc_input,
                  video_quality_input, use_youtube_subs_input, translate_input,
                  add_music_input, music_dir_input, music_file_input, music_volume_input,
-                 add_distraction_input, distraction_dir_input, distraction_file_input, distraction_no_fetch_input,
+                 add_distraction_input, distraction_dir_input, distraction_file_input, distraction_no_fetch_input, distraction_ratio_input,
                  # Auto Post
                  post_youtube_input, post_tiktok_input, youtube_privacy_input, post_interval_input, post_first_time_input,
              ]
@@ -1166,7 +1184,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                 )
                 lib_interval = gr.Number(
                     label=i18n("Interval between posts (minutes)"),
-                    value=30, minimum=1, maximum=1440,
+                    value=30, minimum=0, maximum=1440,
                     info=i18n("Wait this many minutes between each video posted")
                 )
                 lib_post_btn = gr.Button(i18n("Post Selected Project"), variant="primary")
@@ -1246,7 +1264,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.colab:
-        print("Running in Colab mode. Generating public link with Static Mounts...")
+        logger.info("Running in Colab mode. Generating public link with Static Mounts...")
         library.set_url_mode("fastapi")
         
         # Broaden allowed paths for Colab
@@ -1255,11 +1273,11 @@ if __name__ == "__main__":
         # Explicitly set static paths
         try:
             gr.set_static_paths(paths=allowed_dirs)
-            print(f"DEBUG: Registered static paths: {allowed_dirs}")
+            logger.debug(f"Registered static paths: {allowed_dirs}")
         except AttributeError:
-            print("DEBUG: gr.set_static_paths not available")
+            logger.debug("gr.set_static_paths not available")
         
-        print(f"DEBUG: Allowed paths for Gradio: {allowed_dirs}")
+        logger.debug(f"Allowed paths for Gradio: {allowed_dirs}")
         
         # Launch with prevent_thread_lock to allow mounting
         app, local_url, share_url = demo.queue().launch(
@@ -1270,8 +1288,8 @@ if __name__ == "__main__":
         
         # Mount the VIRALS directory explicitly
         app.mount("/virals", StaticFiles(directory=VIRALS_DIR), name="virals")
-        print(f"Mounted /virals to {VIRALS_DIR}")
-        
+        logger.info(f"Mounted /virals to {VIRALS_DIR}")
+
         demo.block_thread()
     else:
         # Check environment
@@ -1307,10 +1325,10 @@ if __name__ == "__main__":
                 except Exception as e:
                     return {"error": str(e)}
             
-            print(f"Mounted /virals to {VIRALS_DIR}")
+            logger.info(f"Mounted /virals to {VIRALS_DIR}")
 
         if is_windows:
-            print("Running in Windows environment (using Gradio launch for convenience).")
+            logger.info("Running in Windows environment (using Gradio launch for convenience).")
             # Windows: Use demo.launch() for convenience (auto-browser, etc)
             app, local_url, share_url = demo.queue().launch(
                 share=False, 
@@ -1323,7 +1341,7 @@ if __name__ == "__main__":
             attach_extra_routes(app)
             demo.block_thread()
         else:
-            print("Running in Linux/Container environment (using Uvicorn for stability).")
+            logger.info("Running in Linux/Container environment (using Uvicorn for stability).")
             # Linux/HF: Use Uvicorn for explicit loop control
             app = FastAPI()
             attach_extra_routes(app)

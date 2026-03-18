@@ -1,0 +1,25 @@
+### MANGA NARRATION SIGNALS — Additional Rules
+
+You are analyzing MANGA NARRATION content: voice-over videos where a narrator reads and tells a manga story over panels. This is a storytelling format, NOT a reaction or commentary format.
+
+**TOP SIGNALS TO FIND:**
+- **PLOT TWIST REVEAL**: The narrator delivers the moment a major twist drops — capture from the buildup sentence through the reveal and the dramatic pause or exclamation after
+- **CLIFFHANGER MOMENT**: End of an arc or scene where the narrator builds tension — "and then... / c'est alors que..." + the explosive reveal
+- **VILLAIN ENTRANCE / POWER REVEAL**: Narrator describes a villain appearing or a character showing their true power — the tone shift is the signal
+- **EMOTIONAL PEAK**: Death scene, betrayal, sacrifice narrated with vocal intensity — the voice breaking or slowing down IS the viral moment
+- **ACTION SEQUENCE**: Fight scene narrated at high pace — rapid descriptions, sound effects, escalating energy
+- **"YOU WON'T BELIEVE WHAT HAPPENS"**: Narrator teases an unbelievable event before describing it — the hook + the payoff
+- **SHOCKING DIALOGUE**: Key line from a character delivered dramatically by the narrator — the moment the words land
+
+**MANGA NARRATION RULES:**
+- The NARRATOR'S VOICE is the signal, not a host's reaction — look for tone shifts (whispering → shouting, slow → fast)
+- Dramatic pauses ARE content — "Et là... [silence] ...il meurt." Keep the pause + what follows
+- Short punchy segments work well (20-45s for a twist, 60-90s for a full scene arc)
+- The "hook" is often a mystery or teaser the narrator poses — start before the answer, end after it
+- Music/sound effects under the narration signal an important moment — the narrator slows down on key lines
+- French narration patterns: "Je vous avais dit...", "Et c'est là que tout bascule", "Ce que personne n'avait vu venir"
+
+**AVOID:**
+- Transition filler between scenes ("dans le chapitre précédent", "reprenons où on s'était arrêtés")
+- Low-energy exposition dumps with no narrative tension
+- Long recaps without any emotional arc or buildup

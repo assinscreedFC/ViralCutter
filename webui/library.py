@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import logging
 import os
 import json
 import urllib.parse
@@ -12,31 +15,33 @@ sys.path.append(BASE_DIR)
 from i18n.i18n import I18nAuto
 i18n = I18nAuto()
 
+logger = logging.getLogger(__name__)
+
 VIRALS_DIR = os.path.join(BASE_DIR, "VIRALS")
 
 
 # URL Mode: "fastapi" (default) or "gradio"
 URL_MODE = "fastapi"
 
-def set_url_mode(mode):
+def set_url_mode(mode: str) -> None:
     global URL_MODE
     URL_MODE = mode
 
-def get_existing_projects():
+def get_existing_projects() -> list[str]:
     if not os.path.exists(VIRALS_DIR):
         return []
     try:
         projects = [d for d in os.listdir(VIRALS_DIR) if os.path.isdir(os.path.join(VIRALS_DIR, d))]
         projects.sort(key=lambda x: os.path.getctime(os.path.join(VIRALS_DIR, x)), reverse=True)
         return projects
-    except:
+    except OSError:
         return []
 
-def refresh_projects():
+def refresh_projects() -> dict:
     projs = get_existing_projects()
     return gr.update(choices=projs, value=None)
 
-def generate_project_gallery(project_path_name, is_full_path=False):
+def generate_project_gallery(project_path_name: str | None, is_full_path: bool = False) -> str:
     """
     Generates HTML gallery for a given project folder using FastAPI Static Files mounting.
     """
@@ -48,6 +53,11 @@ def generate_project_gallery(project_path_name, is_full_path=False):
         project_folder_path = project_path_name
     else:
         project_folder_path = os.path.join(VIRALS_DIR, project_path_name)
+
+    # Prevent path traversal (e.g. "../../etc")
+    real_path = os.path.realpath(project_folder_path)
+    if not is_full_path and not real_path.startswith(os.path.realpath(VIRALS_DIR)):
+        return f'<div style="padding: 20px; text-align: center;">{i18n("Invalid project path.")}</div>'
 
     if not os.path.exists(project_folder_path):
         return f'<div style="padding: 20px; text-align: center;">{i18n("Project path not found: {}").format(project_folder_path)}</div>'
@@ -182,24 +192,24 @@ def generate_project_gallery(project_path_name, is_full_path=False):
                                  # Inside CWD, use relative
                                  final_path = rel_path.replace("\\", "/")
                                  # Debug
-                                 print(f"DEBUG: URL Generation (Relative): {final_path}")
+                                 logger.debug(f"URL Generation (Relative): {final_path}")
                              else:
                                  # Outside CWD, use absolute
                                  final_path = abs_video_path.replace("\\", "/")
-                                 print(f"DEBUG: URL Generation (Absolute fallback): {final_path}")
+                                 logger.debug(f"URL Generation (Absolute fallback): {final_path}")
 
                              # Encode
                              path_encoded = urllib.parse.quote(final_path, safe="/:")
                              video_src = f"/file/{path_encoded}"
                              
                          except Exception as e:
-                             print(f"DEBUG: Error pathing: {e}")
+                             logger.debug(f"Error pathing: {e}")
                              video_src = ""
                          
                          if os.path.exists(abs_video):
-                             print(f"DEBUG:   File Exists.")
+                             logger.debug("File Exists.")
                          else:
-                             print(f"DEBUG:   File NOT FOUND.")
+                             logger.debug("File NOT FOUND.")
                              
                          video_tag = f"""
                         <video controls preload="metadata" playsinline style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain;">

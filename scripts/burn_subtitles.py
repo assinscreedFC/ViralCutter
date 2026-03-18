@@ -1,12 +1,17 @@
+from __future__ import annotations
+
+import logging
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
 
+logger = logging.getLogger(__name__)
+
 # sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-def burn_video_file(video_path, subtitle_path, output_path):
+def burn_video_file(video_path: str, subtitle_path: str, output_path: str) -> tuple[bool, str]:
     """
     Burns subtitles into a single video file.
     """
@@ -19,7 +24,9 @@ def burn_video_file(video_path, subtitle_path, output_path):
 
     subtitle_file_ffmpeg = tmp_ass.replace('\\', '/').replace(':', '\\:')
 
-    def run_ffmpeg(encoder, preset, additional_args=[]):
+    def run_ffmpeg(encoder, preset, additional_args=None):
+        if additional_args is None:
+            additional_args = []
         cmd = [
             "ffmpeg", "-y", "-loglevel", "error", "-hide_banner",
             '-i', video_path,
@@ -40,7 +47,7 @@ def burn_video_file(video_path, subtitle_path, output_path):
             run_ffmpeg("h264_nvenc", "p1")
             return True, "NVENC Success"
         except subprocess.CalledProcessError as e:
-            print(f"Erro com NVENC ({str(e)}). Tentando CPU (libx264)...")
+            logger.error(f"Erro com NVENC ({str(e)}). Tentando CPU (libx264)...")
             try:
                 run_ffmpeg("libx264", "ultrafast")
                 return True, "CPU Success"
@@ -48,14 +55,14 @@ def burn_video_file(video_path, subtitle_path, output_path):
                 err_msg = f"ERRO FATAL ao queimar legendas em {os.path.basename(video_path)}: {e2}"
                 if e2.stderr:
                     err_msg += f" | FFmpeg Log: {e2.stderr.decode('utf-8')}"
-                print(err_msg)
+                logger.error(err_msg)
                 return False, err_msg
     except Exception as e:
         return False, str(e)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
-def burn(project_folder="tmp", source_folder=None, name_suffix_strip=""):
+def burn(project_folder: str = "tmp", source_folder: str | None = None, name_suffix_strip: str = "") -> None:
     # Converter para absoluto para não ter erro no filtro do ffmpeg
     if project_folder and not os.path.isabs(project_folder):
         project_folder_abs = os.path.abspath(project_folder)
@@ -71,13 +78,13 @@ def burn(project_folder="tmp", source_folder=None, name_suffix_strip=""):
     os.makedirs(output_folder, exist_ok=True)
     
     if not os.path.exists(videos_folder):
-        print(f"Pasta de vídeos finais não encontrada: {videos_folder}")
+        logger.error(f"Pasta de vídeos finais não encontrada: {videos_folder}")
         return
 
     # Itera sobre os arquivos de vídeo na pasta final
     files = os.listdir(videos_folder)
     if not files:
-        print("Nenhum arquivo encontrado em 'final' para queimar legendas.")
+        logger.warning("Nenhum arquivo encontrado em 'final' para queimar legendas.")
         return
 
     for video_file in files:
@@ -108,11 +115,11 @@ def burn(project_folder="tmp", source_folder=None, name_suffix_strip=""):
                 # Define o caminho de saída para o vídeo com legendas
                 output_file = os.path.join(output_folder, f"{video_name}_subtitled.mp4")
 
-                print(f"Burning: {video_name}...")
+                logger.info(f"Burning: {video_name}...")
                 success, msg = burn_video_file(os.path.join(videos_folder, video_file), subtitle_file, output_file)
                 if success:
-                    print(f"Done: {output_file}")
+                    logger.info(f"Done: {output_file}")
                 else:
-                    print(f"Fail: {msg}")
+                    logger.error(f"Fail: {msg}")
             else:
-                print(f"Legenda não encontrada para: {video_name} em {subtitle_file}")
+                logger.warning(f"Legenda não encontrada para: {video_name} em {subtitle_file}")

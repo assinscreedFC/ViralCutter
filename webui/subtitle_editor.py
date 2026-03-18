@@ -1,5 +1,6 @@
 
 import json
+import logging
 import os
 import re
 import sys
@@ -7,7 +8,9 @@ import sys
 # Import scripts for direct processing
 import scripts.adjust_subtitles as adjust
 import scripts.burn_subtitles as burn
-import main_improved 
+import main_improved
+
+logger = logging.getLogger(__name__)
 
 # Helper to format seconds to HH:MM:SS,mmm
 def format_timestamp(seconds):
@@ -56,7 +59,7 @@ def load_transcription_for_editor(json_path):
             
         return editor_data
     except Exception as e:
-        print(f"Error loading JSON for editor: {e}")
+        logger.error(f"Error loading JSON for editor: {e}")
         return []
 
 def save_editor_changes(json_path, new_data):

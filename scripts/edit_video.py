@@ -1,22 +1,28 @@
+from __future__ import annotations
+
+import logging
 import cv2
 import numpy as np
 import os
 import subprocess
 import mediapipe as mp
-from scripts.one_face import crop_and_resize_single_face, resize_with_padding, detect_face_or_body, crop_center_zoom
+from typing import Callable
+
+logger = logging.getLogger(__name__)
+from scripts.one_face import crop_and_resize_single_face, resize_with_padding, detect_face_or_body, crop_center_zoom, crop_to_smart_region
 from scripts.two_face import crop_and_resize_two_faces, detect_face_or_body_two_faces
 try:
     from scripts.face_detection_insightface import init_insightface, detect_faces_insightface, crop_and_resize_insightface
     INSIGHTFACE_AVAILABLE = True
 except ImportError:
     INSIGHTFACE_AVAILABLE = False
-    print("InsightFace not found or error importing. Install with: pip install insightface onnxruntime-gpu")
+    logger.warning("InsightFace not found or error importing. Install with: pip install insightface onnxruntime-gpu")
 
 
 # Global cache for encoder
 CACHED_ENCODER = None
 
-def get_best_encoder():
+def get_best_encoder() -> tuple[str, str]:
     global CACHED_ENCODER
     if CACHED_ENCODER: return CACHED_ENCODER
     
@@ -27,42 +33,42 @@ def get_best_encoder():
         
         # Priority: NVENC (NVIDIA) > AMF (AMD) > QSV (Intel) > CPU
         if "h264_nvenc" in output:
-            print("Encoder Detected: NVIDIA (h264_nvenc)")
+            logger.info("Encoder Detected: NVIDIA (h264_nvenc)")
             CACHED_ENCODER = ("h264_nvenc", "p1") # p1=max quality, p7=max speed
             return CACHED_ENCODER
         
         if "h264_amf" in output:
-            print("Encoder Detected: AMD (h264_amf)")
+            logger.info("Encoder Detected: AMD (h264_amf)")
             CACHED_ENCODER = ("h264_amf", "speed") # quality, speed, balanced
             return CACHED_ENCODER
             
         if "h264_qsv" in output:
-             print("Encoder Detected: Intel QSV (h264_qsv)")
+             logger.info("Encoder Detected: Intel QSV (h264_qsv)")
              CACHED_ENCODER = ("h264_qsv", "veryfast")
              return CACHED_ENCODER
              
         # Mac OS (VideoToolbox)
         if "h264_videotoolbox" in output:
-             print("Encoder Detected: MacOS (h264_videotoolbox)")
+             logger.info("Encoder Detected: MacOS (h264_videotoolbox)")
              CACHED_ENCODER = ("h264_videotoolbox", "default")
              return CACHED_ENCODER
 
     except Exception as e:
-        print(f"Error checking encoders: {e}")
+        logger.error(f"Error checking encoders: {e}")
 
-    print("Encoder Detected: CPU (libx264)")
+    logger.info("Encoder Detected: CPU (libx264)")
     CACHED_ENCODER = ("libx264", "ultrafast")
     return CACHED_ENCODER
 
-def get_center_bbox(bbox):
+def get_center_bbox(bbox: list) -> tuple[float, float]:
     # bbox: [x1, y1, x2, y2]
     return ((bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2)
 
-def get_center_rect(rect):
+def get_center_rect(rect: tuple) -> tuple[float, float]:
     # rect: (x, y, w, h)
     return (rect[0] + rect[2] / 2, rect[1] + rect[3] / 2)
 
-def sort_by_proximity(new_faces, old_faces, center_func):
+def sort_by_proximity(new_faces: list, old_faces: list, center_func: Callable) -> list:
     """
     Sorts new_faces to match the order of old_faces based on distance.
     new_faces: list of face objects (bbox or tuple)
@@ -94,25 +100,24 @@ def sort_by_proximity(new_faces, old_faces, center_func):
     
     return new_faces
 
-def generate_short_fallback(input_file, output_file, index, project_folder, final_folder, no_face_mode="padding"):
-    """Fallback function: Center Crop (Zoom) or Padding if detection fails."""
-    print(f"Processing (Fallback): {input_file} | Mode: {no_face_mode}")
+def generate_short_fallback(input_file: str, output_file: str, index: int, project_folder: str, final_folder: str, no_face_mode: str = "padding") -> None:
+    """Fallback function: Center Crop (Zoom), Padding, Saliency, or Motion tracking if detection fails."""
+    logger.info(f"Processing (Fallback): {input_file} | Mode: {no_face_mode}")
     cap = cv2.VideoCapture(input_file)
     if not cap.isOpened():
-        print(f"Error opening video: {input_file}")
+        logger.error(f"Error opening video: {input_file}")
         return
 
     fps = cap.get(cv2.CAP_PROP_FPS)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    
+
     # Target dimensions (9:16)
-    
     target_width = 1080
     target_height = 1920
-    
+
     encoder_name, encoder_preset = get_best_encoder()
-    
+
     # Use FFmpeg Pipe instead of cv2.VideoWriter to avoid OpenCV backend errors
     ffmpeg_cmd = [
         'ffmpeg', '-y', '-loglevel', 'error', '-hide_banner', '-stats',
@@ -132,39 +137,66 @@ def generate_short_fallback(input_file, output_file, index, project_folder, fina
         ffmpeg_cmd.extend(["-rc:v", "vbr", "-cq", "19", "-maxrate", "8M"])
 
     ffmpeg_cmd.append(output_file)
-    
+
     process = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE)
+
+    # Smart region state (saliency / motion)
+    smart_cx = width // 2
+    smart_cy = height // 2
+    prev_gray = None
+    saliency_detector = None
+    if no_face_mode == "saliency":
+        saliency_detector = cv2.saliency.StaticSaliencySpectralResidual.create()
 
     while True:
         ret, frame = cap.read()
         if not ret:
             break
-        
+
         if no_face_mode == "zoom":
-             result = crop_center_zoom(frame)
+            result = crop_center_zoom(frame)
+        elif no_face_mode == "saliency":
+            _, sal_map = saliency_detector.computeSaliency(frame)
+            sal_map = (sal_map * 255).astype(np.uint8)
+            m = cv2.moments(sal_map)
+            if m['m00'] > 0:
+                cx = int(m['m10'] / m['m00'])
+                cy = int(m['m01'] / m['m00'])
+                smart_cx = int(smart_cx * 0.90 + cx * 0.10)
+                smart_cy = int(smart_cy * 0.90 + cy * 0.10)
+            result = crop_to_smart_region(frame, smart_cx, smart_cy)
+        elif no_face_mode == "motion":
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            if prev_gray is not None:
+                diff = cv2.absdiff(prev_gray, gray)
+                m = cv2.moments(diff)
+                if m['m00'] > 500:
+                    cx = int(m['m10'] / m['m00'])
+                    cy = int(m['m01'] / m['m00'])
+                    smart_cx = int(smart_cx * 0.85 + cx * 0.15)
+                    smart_cy = int(smart_cy * 0.85 + cy * 0.15)
+            prev_gray = gray
+            result = crop_to_smart_region(frame, smart_cx, smart_cy)
         else:
-             result = resize_with_padding(frame)
-        
+            result = resize_with_padding(frame)
+
         try:
-            # Write raw bytes to ffmpeg stdin
             process.stdin.write(result.tobytes())
         except Exception as e:
-            print(f"Error writing frame to ffmpeg pipe: {e}")
+            logger.error(f"Error writing frame to ffmpeg pipe: {e}")
             pass
-        
-
 
     cap.release()
     process.stdin.close()
     process.wait()
-    
+
     finalize_video(input_file, output_file, index, fps, project_folder, final_folder)
 
-def finalize_video(input_file, output_file, index, fps, project_folder, final_folder):
+def finalize_video(input_file: str, output_file: str, index: int, fps: float, project_folder: str, final_folder: str) -> None:
     """Mux audio and video."""
     audio_file = os.path.join(project_folder, "cuts", f"output-audio-{index}.aac")
-    subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", input_file, "-vn", "-acodec", "copy", audio_file], 
-                   check=False, capture_output=True)
+    subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", input_file, "-vn", "-acodec", "copy", audio_file],
+                   check=False, capture_output=True, timeout=600)
 
     if os.path.exists(audio_file) and os.path.getsize(audio_file) > 0:
         final_output = os.path.join(final_folder, f"final-output{str(index).zfill(3)}_processed.mp4")
@@ -179,20 +211,20 @@ def finalize_video(input_file, output_file, index, fps, project_folder, final_fo
             final_output
         ]
         try:
-            subprocess.run(command, check=True) #, capture_output=True)
-            print(f"Final file generated: {final_output}")
+            subprocess.run(command, check=True, timeout=600) #, capture_output=True)
+            logger.info(f"Final file generated: {final_output}")
             try:
                 os.remove(audio_file)
-                os.remove(output_file) 
-            except:
-                pass
+                os.remove(output_file)
+            except OSError:
+                pass  # temp files may already be removed
         except subprocess.CalledProcessError as e:
-            print(f"Error muxing: {e}")
+            logger.error(f"Error muxing: {e}")
     else:
-        print(f"Warning: No audio extracted for {input_file}")
+        logger.warning(f"Warning: No audio extracted for {input_file}")
 
 
-def calculate_mouth_ratio(landmarks):
+def calculate_mouth_ratio(landmarks: np.ndarray) -> float:
     """
     Calculate Mouth Aspect Ratio (MAR) using 68-point landmarks (inner lips).
     Indices: 
@@ -223,11 +255,11 @@ def calculate_mouth_ratio(landmarks):
     
     return h / w
 
-def generate_short_mediapipe(input_file, output_file, index, face_mode, project_folder, final_folder, face_detection, face_mesh, pose, detection_period=None, no_face_mode="padding"):
+def generate_short_mediapipe(input_file: str, output_file: str, index: int, face_mode: str, project_folder: str, final_folder: str, face_detection: object, face_mesh: object, pose: object, detection_period: float | None = None, no_face_mode: str = "padding") -> None:
     try:
         cap = cv2.VideoCapture(input_file)
         if not cap.isOpened():
-            print(f"Error opening video: {input_file}")
+            logger.error(f"Error opening video: {input_file}")
             return
 
         fps = cap.get(cv2.CAP_PROP_FPS)
@@ -367,24 +399,29 @@ def generate_short_mediapipe(input_file, output_file, index, face_mode, project_
         finalize_video(input_file, output_file, index, fps, project_folder, final_folder)
 
     except Exception as e:
-        print(f"Error in MediaPipe processing: {e}")
+        logger.error(f"Error in MediaPipe processing: {e}")
         raise e # Rethrow to trigger fallback
+    finally:
+        if 'cap' in dir() and cap.isOpened():
+            cap.release()
+        if 'out' in dir():
+            out.release()
 
-def generate_short_haar(input_file, output_file, index, project_folder, final_folder, detection_period=None, no_face_mode="padding"):
+def generate_short_haar(input_file: str, output_file: str, index: int, project_folder: str, final_folder: str, detection_period: float | None = None, no_face_mode: str = "padding") -> None:
     """Face detection using OpenCV Haar Cascades."""
-    print(f"Processing (Haar Cascade): {input_file}")
+    logger.info(f"Processing (Haar Cascade): {input_file}")
     
     # Load Haar Cascade
     cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
     face_cascade = cv2.CascadeClassifier(cascade_path)
     if face_cascade.empty():
-        print("Error: Could not load Haar Cascade XML. Falling back to center crop.")
+        logger.error("Error: Could not load Haar Cascade XML. Falling back to center crop.")
         generate_short_fallback(input_file, output_file, index, project_folder, final_folder)
         return
 
     cap = cv2.VideoCapture(input_file)
     if not cap.isOpened():
-        print(f"Error opening video: {input_file}")
+        logger.error(f"Error opening video: {input_file}")
         return
 
     fps = cap.get(cv2.CAP_PROP_FPS)
@@ -471,17 +508,13 @@ def generate_short_haar(input_file, output_file, index, project_folder, final_fo
     
     finalize_video(input_file, output_file, index, fps, project_folder, final_folder)
 
-    finalize_video(input_file, output_file, index, fps, project_folder, final_folder)
-
-    finalize_video(input_file, output_file, index, fps, project_folder, final_folder)
-
-def generate_short_insightface(input_file, output_file, index, project_folder, final_folder, face_mode="auto", detection_period=None, filter_threshold=0.35, two_face_threshold=0.60, confidence_threshold=0.30, dead_zone=40, focus_active_speaker=False, active_speaker_mar=0.03, active_speaker_score_diff=1.5, include_motion=False, active_speaker_motion_deadzone=3.0, active_speaker_motion_sensitivity=0.05, active_speaker_decay=2.0, no_face_mode="padding", zoom_out_factor=2.2):
+def generate_short_insightface(input_file: str, output_file: str, index: int, project_folder: str, final_folder: str, face_mode: str = "auto", detection_period: float | dict | None = None, filter_threshold: float = 0.35, two_face_threshold: float = 0.60, confidence_threshold: float = 0.30, dead_zone: int = 40, focus_active_speaker: bool = False, active_speaker_mar: float = 0.03, active_speaker_score_diff: float = 1.5, include_motion: bool = False, active_speaker_motion_deadzone: float = 3.0, active_speaker_motion_sensitivity: float = 0.05, active_speaker_decay: float = 2.0, no_face_mode: str = "padding", zoom_out_factor: float = 2.2) -> str:
     """Face detection using InsightFace (SOTA)."""
-    print(f"Processing (InsightFace): {input_file} | Mode: {face_mode}")
+    logger.info(f"Processing (InsightFace): {input_file} | Mode: {face_mode}")
     
     cap = cv2.VideoCapture(input_file)
     if not cap.isOpened():
-        print(f"Error opening video: {input_file}")
+        logger.error(f"Error opening video: {input_file}")
         return
 
     fps = cap.get(cv2.CAP_PROP_FPS)
@@ -495,7 +528,7 @@ def generate_short_insightface(input_file, output_file, index, project_folder, f
     
     # Dynamic Interval Logic
     next_detection_frame = 0
-    
+
     last_detected_faces = None
     last_frame_face_positions = None
     last_success_frame = -1000
@@ -509,6 +542,14 @@ def generate_short_insightface(input_file, output_file, index, project_folder, f
     current_num_faces_state = 1
     if face_mode == "2":
         current_num_faces_state = 2
+
+    # Smart region tracking state (saliency / motion fallback)
+    smart_cx = frame_width // 2
+    smart_cy = frame_height // 2
+    smart_prev_gray = None
+    smart_saliency = None
+    if no_face_mode == "saliency":
+        smart_saliency = cv2.saliency.StaticSaliencySpectralResidual.create()
 
     frame_1_face_count = 0
     frame_2_face_count = 0
@@ -544,9 +585,9 @@ def generate_short_insightface(input_file, output_file, index, project_folder, f
             faces = detect_faces_insightface(frame)
             if faces:
                 scores = [f"{f.get('det_score',0):.2f}" for f in faces]
-                print(f"DEBUG: Frame {frame_index} | Raw Faces: {len(faces)} | Scores: {scores}")
+                logger.debug(f"DEBUG: Frame {frame_index} | Raw Faces: {len(faces)} | Scores: {scores}")
             else:
-                pass # print(f"DEBUG: Frame {frame_index} | No Raw Faces")
+                pass # logger.debug(f"DEBUG: Frame {frame_index} | No Raw Faces")
 
             # --- ACTIVITY / SPEAKER DETECTION ---
             # (Feature currently disabled for stability - relying on simple size checks)
@@ -577,7 +618,7 @@ def generate_short_insightface(input_file, output_file, index, project_folder, f
                     valid_faces = [f for f in faces if f['area'] > (filter_threshold * max_area)]
                     
                     if len(valid_faces) < len(faces):
-                        print(f"DEBUG: Filtered {len(faces)-len(valid_faces)} small faces. Max Area: {max_area}. Filter Thresh: {filter_threshold}")
+                        logger.debug(f"DEBUG: Filtered {len(faces)-len(valid_faces)} small faces. Max Area: {max_area}. Filter Thresh: {filter_threshold}")
                     
                     faces = valid_faces
             
@@ -615,7 +656,7 @@ def generate_short_insightface(input_file, output_file, index, project_folder, f
             # FIX: Use last_raw_faces (before size filtering) so we count background people too!
             is_crowd = len(last_raw_faces) >= CROWD_THRESHOLD
             if is_crowd:
-                print(f"DEBUG: Crowd Mode Active! {len(faces)} faces >= {CROWD_THRESHOLD}. Triggering Fallback (No Face Mode).")
+                logger.debug(f"DEBUG: Crowd Mode Active! {len(faces)} faces >= {CROWD_THRESHOLD}. Triggering Fallback (No Face Mode).")
                 faces = [] 
                 valid_faces = [] # CAUTION: Must clear strict backup too!
                 # FORCE RESET HISTORY so it doesn't "stick" to the last face found
@@ -730,7 +771,7 @@ def generate_short_insightface(input_file, output_file, index, project_folder, f
                          pos2 = "Top" if y2 < y1 else "Bottom"
                          
                          # Debug Active Speaker
-                         print(f"DEBUG: Frame {frame_index} | {pos1} (MAR: {f1.get('mouth_ratio',0):.3f}, Mov: {f1.get('motion_val',0):.1f}, Score: {score1:.1f}) | {pos2} (MAR: {f2.get('mouth_ratio',0):.3f}, Mov: {f2.get('motion_val',0):.1f}, Score: {score2:.1f})")
+                         logger.debug(f"DEBUG: Frame {frame_index} | {pos1} (MAR: {f1.get('mouth_ratio',0):.3f}, Mov: {f1.get('motion_val',0):.1f}, Score: {score1:.1f}) | {pos2} (MAR: {f2.get('mouth_ratio',0):.3f}, Mov: {f2.get('motion_val',0):.1f}, Score: {score2:.1f})")
 
 
                          # If one is clearly dominant active speaker
@@ -746,14 +787,14 @@ def generate_short_insightface(input_file, output_file, index, project_folder, f
                              if score2 > score1:
                                  # Swap ensures [0] is the active one for later 1-face crop logic which takes [0]
                                  faces = [f2, f1]
-                             print(f"DEBUG: Active Speaker Focus Triggered! Diff ({diff:.2f}) > Thresh ({active_speaker_score_diff}). Focusing on Face {'2' if score2 > score1 else '1'}.")
+                             logger.debug(f"DEBUG: Active Speaker Focus Triggered! Diff ({diff:.2f}) > Thresh ({active_speaker_score_diff}). Focusing on Face {'2' if score2 > score1 else '1'}.")
                              
                          elif score1 > 4.0 and score2 > 4.0:
                              # Both talking -> 2 faces
                              # Raised threshold to 4.0 to avoid noise triggering split
                              target_faces = 2
                              decided = True
-                             print(f"DEBUG: Dual Active Speakers! Both scores > 4.0. Forcing Split Mode.")
+                             logger.debug(f"DEBUG: Dual Active Speakers! Both scores > 4.0. Forcing Split Mode.")
                          
                          # If scores are low (both silent), fallback to size ratio (decided=False) or force 1 if very silent?
                          # Let's fallback to size.
@@ -964,11 +1005,33 @@ def generate_short_insightface(input_file, output_file, index, project_folder, f
             # Fallback for this frame
             if no_face_mode == "zoom":
                 result = crop_center_zoom(frame)
+            elif no_face_mode == "saliency":
+                _, sal_map = smart_saliency.computeSaliency(frame)
+                sal_map = (sal_map * 255).astype(np.uint8)
+                m = cv2.moments(sal_map)
+                if m['m00'] > 0:
+                    cx = int(m['m10'] / m['m00'])
+                    cy = int(m['m01'] / m['m00'])
+                    smart_cx = int(smart_cx * 0.90 + cx * 0.10)
+                    smart_cy = int(smart_cy * 0.90 + cy * 0.10)
+                result = crop_to_smart_region(frame, smart_cx, smart_cy)
+            elif no_face_mode == "motion":
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                if smart_prev_gray is not None:
+                    diff = cv2.absdiff(smart_prev_gray, gray)
+                    m = cv2.moments(diff)
+                    if m['m00'] > 500:
+                        cx = int(m['m10'] / m['m00'])
+                        cy = int(m['m01'] / m['m00'])
+                        smart_cx = int(smart_cx * 0.85 + cx * 0.15)
+                        smart_cy = int(smart_cy * 0.85 + cy * 0.15)
+                smart_prev_gray = gray
+                result = crop_to_smart_region(frame, smart_cx, smart_cy)
             else:
                 result = resize_with_padding(frame)
             out.write(result)
             timeline_frames.append((frame_index, "1")) # Fix: Ensure fallback is treated as single face for subs
-            
+
             # Fix XML Log sync (Empty faces for fallback)
             coords_entry = {"frame": frame_index, "src_size": [frame_width, frame_height], "faces": []}
             coordinate_log.append(coords_entry)
@@ -1020,7 +1083,8 @@ def generate_short_insightface(input_file, output_file, index, project_folder, f
                     f_list.append(float(f"{rh:.4f}"))
                     processed_faces_log.append(f_list)
                 coords_entry["faces"] = processed_faces_log
-        except: pass
+        except (ValueError, IndexError, AttributeError):
+            pass  # coords logging is best-effort
         coordinate_log.append(coords_entry)
 
         out.write(result)
@@ -1064,18 +1128,18 @@ def generate_short_insightface(input_file, output_file, index, project_folder, f
         import json
         with open(timeline_file, "w") as f:
             json.dump(compressed_timeline, f)
-        print(f"Timeline saved: {timeline_file}")
+        logger.info(f"Timeline saved: {timeline_file}")
     except Exception as e:
-        print(f"Error saving timeline: {e}")
+        logger.error(f"Error saving timeline: {e}")
 
     # Save Coords JSON
     coords_file = output_file.replace(".mp4", "_coords.json")
     try:
         with open(coords_file, "w") as f:
             json.dump(coordinate_log, f)
-        print(f"Face Coordinates saved: {coords_file}")
+        logger.info(f"Face Coordinates saved: {coords_file}")
     except Exception as e:
-        print(f"Error saving coords: {e}")
+        logger.error(f"Error saving coords: {e}")
 
     finalize_video(input_file, output_file, index, fps, project_folder, final_folder)
     
@@ -1085,7 +1149,7 @@ def generate_short_insightface(input_file, output_file, index, project_folder, f
     return "1"
 
 
-def edit(project_folder="tmp", face_model="insightface", face_mode="auto", detection_period=None, filter_threshold=0.35, two_face_threshold=0.60, confidence_threshold=0.30, dead_zone=40, focus_active_speaker=False, active_speaker_mar=0.03, active_speaker_score_diff=1.5, include_motion=False, active_speaker_motion_deadzone=3.0, active_speaker_motion_sensitivity=0.05, active_speaker_decay=2.0, segments_data=None, no_face_mode="padding", zoom_out_factor=2.2):
+def edit(project_folder: str = "tmp", face_model: str = "insightface", face_mode: str = "auto", detection_period: float | dict | None = None, filter_threshold: float = 0.35, two_face_threshold: float = 0.60, confidence_threshold: float = 0.30, dead_zone: int = 40, focus_active_speaker: bool = False, active_speaker_mar: float = 0.03, active_speaker_score_diff: float = 1.5, include_motion: bool = False, active_speaker_motion_deadzone: float = 3.0, active_speaker_motion_sensitivity: float = 0.05, active_speaker_decay: float = 2.0, segments_data: dict | None = None, no_face_mode: str = "padding", zoom_out_factor: float = 2.2) -> None:
     # Lazy init solutions only when needed to avoid AttributeError if import failed partially
     mp_face_detection = None
     mp_face_mesh = None
@@ -1105,12 +1169,12 @@ def edit(project_folder="tmp", face_model="insightface", face_mode="auto", detec
     # Only init InsightFace if selected or default
     if INSIGHTFACE_AVAILABLE and (face_model == "insightface"):
         try:
-            print("Initializing InsightFace...")
+            logger.info("Initializing InsightFace...")
             init_insightface()
             insightface_working = True
-            print("InsightFace Initialized Successfully.")
+            logger.info("InsightFace Initialized Successfully.")
         except Exception as e:
-            print(f"WARNING: InsightFace Initialization Failed ({e}). Will try MediaPipe.")
+            logger.warning(f"InsightFace Initialization Failed ({e}). Will try MediaPipe.")
             insightface_working = False
 
     mediapipe_working = False
@@ -1133,9 +1197,9 @@ def edit(project_folder="tmp", face_model="insightface", face_mode="auto", detec
             with mp_face_detection.FaceDetection(model_selection=0, min_detection_confidence=0.5) as fd:
                 pass
             mediapipe_working = True
-            print("MediaPipe Initialized Successfully.")
+            logger.info("MediaPipe Initialized Successfully.")
         except Exception as e:
-            print(f"WARNING: MediaPipe Initialization Failed ({e}). Switching to OpenCV Haar Cascade.")
+            logger.warning(f"MediaPipe Initialization Failed ({e}). Switching to OpenCV Haar Cascade.")
             mediapipe_working = False
             use_haar = True
     
@@ -1146,7 +1210,7 @@ def edit(project_folder="tmp", face_model="insightface", face_mode="auto", detec
     found_files = sorted(glob.glob(os.path.join(cuts_folder, "*_original_scale.mp4")))
 
     if not found_files:
-        print(f"No files found in {cuts_folder}.")
+        logger.warning(f"No files found in {cuts_folder}.")
         # Try finding lookahead in case listdir failed? No, glob is fine.
         return
 
@@ -1194,8 +1258,8 @@ def edit(project_folder="tmp", face_model="insightface", face_mode="auto", detec
                 except Exception as e:
                     import traceback
                     traceback.print_exc()
-                    print(f"InsightFace processing failed for {input_filename}: {e}")
-                    print("Falling back to MediaPipe/Haar...")
+                    logger.error(f"InsightFace processing failed for {input_filename}: {e}")
+                    logger.warning("Falling back to MediaPipe/Haar...")
             
             # 2. Try MediaPipe if InsightFace failed or not available
             if not success and mediapipe_working:
@@ -1213,16 +1277,16 @@ def edit(project_folder="tmp", face_model="insightface", face_mode="auto", detec
                             detected_mode = "2"
                     success = True
                 except Exception as e:
-                     print(f"MediaPipe processing failed (fallback): {e}")
+                     logger.error(f"MediaPipe processing failed: {e}")
             
             # 3. Try Haar if others failed
             if not success and (use_haar or (not mediapipe_working and not insightface_working)):
                  try:
-                    print("Attempts with Haar Cascade...")
+                    logger.info("Attempts with Haar Cascade...")
                     generate_short_haar(input_file, output_file, index, project_folder, final_folder, detection_period=detection_period, no_face_mode=no_face_mode)
                     success = True
                  except Exception as e2:
-                    print(f"Haar fallback also failed: {e2}")
+                    logger.error(f"Haar fallback also failed: {e2}")
 
             # 4. Last Resort: Center Crop
             if not success:
@@ -1247,7 +1311,7 @@ def edit(project_folder="tmp", face_model="insightface", face_mode="auto", detec
                  if os.path.exists(generated_mp4_path):
                      if os.path.exists(new_mp4_path): os.remove(new_mp4_path)
                      os.rename(generated_mp4_path, new_mp4_path)
-                     print(f"Renamed Output to Title: {new_mp4_name}")
+                     logger.info(f"Renamed Output to Title: {new_mp4_name}")
                      
                      # 2. Rename JSON Subtitle (if exists and hasn't been renamed by cut_segments)
                      subs_folder = os.path.join(project_folder, "subs")
@@ -1262,7 +1326,7 @@ def edit(project_folder="tmp", face_model="insightface", face_mode="auto", detec
                      if os.path.exists(old_json_path):
                          if os.path.exists(new_json_path): os.remove(new_json_path)
                          os.rename(old_json_path, new_json_path)
-                         print(f"Renamed Subtitles to Title: {new_json_name}")
+                         logger.info(f"Renamed Subtitles to Title: {new_json_name}")
                          
                      # 3. Rename Timeline JSON
                      # Timeline is temp_video_no_audio_{index}_timeline.json (created by generate_short...)
@@ -1275,7 +1339,7 @@ def edit(project_folder="tmp", face_model="insightface", face_mode="auto", detec
                      if os.path.exists(old_timeline_path):
                          if os.path.exists(new_timeline_path): os.remove(new_timeline_path)
                          os.rename(old_timeline_path, new_timeline_path)
-                         print(f"Renamed Timeline to Title: {new_timeline_name}")
+                         logger.info(f"Renamed Timeline to Title: {new_timeline_name}")
                          
                      # 4. Rename Coords JSON
                      old_coords_name = f"temp_video_no_audio_{index}_coords.json"
@@ -1287,10 +1351,10 @@ def edit(project_folder="tmp", face_model="insightface", face_mode="auto", detec
                      if os.path.exists(old_coords_path):
                          if os.path.exists(new_coords_path): os.remove(new_coords_path)
                          os.rename(old_coords_path, new_coords_path)
-                         print(f"Renamed Coords to Title: {new_coords_name}")
+                         logger.info(f"Renamed Coords to Title: {new_coords_name}")
                          
              except Exception as e:
-                 print(f"Warning: Could not rename file with title: {e}") 
+                 logger.warning(f"Warning: Could not rename file with title: {e}") 
         
     # Save Face Modes to JSON for subtitle usage
     modes_file = os.path.join(project_folder, "face_modes.json")
@@ -1298,9 +1362,9 @@ def edit(project_folder="tmp", face_model="insightface", face_mode="auto", detec
         import json
         with open(modes_file, "w") as f:
             json.dump(face_modes_log, f)
-        print(f"Detect Stats saved: {modes_file}")
+        logger.info(f"Detect Stats saved: {modes_file}")
     except Exception as e:
-        print(f"Error saving face modes: {e}")
+        logger.error(f"Error saving face modes: {e}")
 
 if __name__ == "__main__":
     edit()

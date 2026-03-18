@@ -1,10 +1,15 @@
+from __future__ import annotations
+
 import json
+import logging
 import os
 import re
 import sys
 import time
 import ast
 import io
+
+logger = logging.getLogger(__name__)
 
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env'))
@@ -14,8 +19,8 @@ if sys.stdout and hasattr(sys.stdout, 'buffer'):
     try:
         # Mantém encoding original mas ignora erros (substitui por ?)
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding=sys.stdout.encoding or 'utf-8', errors='replace', line_buffering=True)
-    except:
-        pass
+    except (AttributeError, ValueError, OSError):
+        pass  # stdout reconfiguration non critique
 
 # Tenta importar bibliotecas de IA opcionalmente
 try:
@@ -42,7 +47,7 @@ try:
 except ImportError:
     HAS_REQUESTS = False
 
-def clean_json_response(response_text):
+def clean_json_response(response_text: str) -> dict:
     """
     Limpa a resposta focando em encontrar o objeto JSON que contém a chave "segments".
     Estratégia: 
@@ -64,7 +69,7 @@ def clean_json_response(response_text):
         if "\\n" in response_text or "\\\"" in response_text:
              # Tenta um decode básico de escapes
              response_text = response_text.replace("\\n", "\n").replace("\\\"", "\"").replace("\\'", "'")
-    except:
+    except (ValueError, TypeError):
         pass
 
     # 2. Busca pela palavra-chave "segments"
@@ -95,9 +100,9 @@ def clean_json_response(response_text):
                 obj, _ = decoder.raw_decode(candidate_text)
                 if 'segments' in obj and isinstance(obj['segments'], list):
                     return obj
-            except:
+            except json.JSONDecodeError:
                 pass
-            
+
             # Tentativa B: ast.literal_eval
             try:
                 balance = 0
@@ -130,7 +135,7 @@ def clean_json_response(response_text):
                     obj = ast.literal_eval(clean_cand)
                     if 'segments' in obj and isinstance(obj['segments'], list):
                         return obj
-            except:
+            except (json.JSONDecodeError, ValueError, SyntaxError):
                 pass
 
     # 3. Fallback: Extração bruta de markdown
@@ -138,7 +143,7 @@ def clean_json_response(response_text):
         match = re.search(r"```json(.*?)```", response_text, re.DOTALL)
         if match:
             return json.loads(match.group(1))
-    except:
+    except json.JSONDecodeError:
         pass
         
     # 4. LAST RESORT: Fragment Parser (Para JSON truncado/incompleto)
@@ -170,15 +175,15 @@ def clean_json_response(response_text):
                     break
                     
             if found_segments:
-                print(f"[INFO] Recuperado {len(found_segments)} segmentos de JSON truncado.")
+                logger.info(f"[INFO] Recuperado {len(found_segments)} segmentos de JSON truncado.")
                 return {"segments": found_segments}
-    except:
+    except (json.JSONDecodeError, ValueError):
         pass
 
     return {"segments": []}
 
 
-def preprocess_transcript_for_ai(segments):
+def preprocess_transcript_for_ai(segments: list[dict]) -> str:
     """
     Concatenates transcript segments into a single string with embedded time tags.
     """
@@ -205,7 +210,7 @@ def preprocess_transcript_for_ai(segments):
 
     return full_text.strip()
 
-def call_gemini(prompt, api_key, model_name='gemini-2.5-flash-lite-preview-09-2025'):
+def call_gemini(prompt: str, api_key: str, model_name: str = 'gemini-2.5-flash-lite-preview-09-2025') -> str:
     if not HAS_GEMINI:
         raise ImportError("A biblioteca 'google-generativeai' não está instalada. Instale com: pip install google-generativeai")
     
@@ -229,17 +234,17 @@ def call_gemini(prompt, api_key, model_name='gemini-2.5-flash-lite-preview-09-20
                 if match:
                     wait_time = float(match.group(1)) + 5.0
                 
-                print(f"[429] Quota Exceeded. Waiting {wait_time:.2f}s before retry {attempt+1}/{max_retries}...", flush=True)
+                logger.info(f"[429] Quota Exceeded. Waiting {wait_time:.2f}s before retry {attempt+1}/{max_retries}...")
                 time.sleep(wait_time)
                 continue
             else:
-                print(f"Erro na API do Gemini: {e}")
+                logger.error(f"Erro na API do Gemini: {e}")
                 return "{}"
     
-    print("Falha após max retries no Gemini.")
+    logger.error("Falha após max retries no Gemini.")
     return "{}"
 
-def call_g4f(prompt, model_name="gpt-4o-mini"):
+def call_g4f(prompt: str, model_name: str = "gpt-4o-mini") -> str:
     if not HAS_G4F:
         raise ImportError("A biblioteca 'g4f' não está instalada. Instale com: pip install g4f")
     
@@ -267,7 +272,7 @@ def call_g4f(prompt, model_name="gpt-4o-mini"):
                 return json.dumps(response)
 
             if not response:
-                print(f"[WARN] G4F retornou resposta vazia. Tentativa {attempt+1}/{max_retries}")
+                logger.warning(f"[WARN] G4F retornou resposta vazia. Tentativa {attempt+1}/{max_retries}")
                 time.sleep(base_wait)
                 continue
             
@@ -276,21 +281,21 @@ def call_g4f(prompt, model_name="gpt-4o-mini"):
 
             try:
                 return json.dumps(response, ensure_ascii=False)
-            except:
+            except (TypeError, ValueError):
                 return str(response)
             
         except Exception as e:
-            print(f"[WARN] Erro na API do G4F (Tentativa {attempt+1}/{max_retries}): {e}")
+            logger.error(f"[WARN] Erro na API do G4F (Tentativa {attempt+1}/{max_retries}): {e}")
             if attempt < max_retries - 1:
                 wait_time = base_wait * (2 ** attempt)
                 time.sleep(wait_time)
             
-    print(f"Falha crítica após {max_retries} tentativas no G4F.")
+    logger.error(f"Falha crítica após {max_retries} tentativas no G4F.")
     return "{}"
 
 CONTENT_TYPES = [
-    "comedy", "commentary", "cooking", "education", "gaming",
-    "motivation", "music", "news", "podcast", "sport", "talkshow", "vlog"
+    "anime", "comedy", "commentary", "cooking", "education", "gaming",
+    "manga", "motivation", "music", "news", "podcast", "sport", "talkshow", "vlog"
 ]
 
 
@@ -327,15 +332,15 @@ TRANSCRIPT EXCERPT (first 2 minutes):
             content_types = [content_types]
         valid = [ct for ct in content_types if ct in CONTENT_TYPES and confidence >= 0.5]
         if valid:
-            print(f"[INFO] Types de contenu détectés: {', '.join(valid)} (confiance: {confidence})")
+            logger.info(f"[INFO] Types de contenu détectés: {', '.join(valid)} (confiance: {confidence})")
             return valid
         # Fallback: try legacy single content_type field
         ct = data.get("content_type", "")
         if ct in CONTENT_TYPES and confidence >= 0.5:
-            print(f"[INFO] Type de contenu détecté: {ct} (confiance: {confidence})")
+            logger.info(f"[INFO] Type de contenu détecté: {ct} (confiance: {confidence})")
             return [ct]
     except Exception as e:
-        print(f"[WARN] Échec classification contenu: {e}")
+        logger.warning(f"[WARN] Échec classification contenu: {e}")
 
     return []
 
@@ -388,7 +393,7 @@ def score_segments(segments: list[dict], ai_mode: str, api_key: str | None = Non
     scoring_path = os.path.join(base_dir, "prompts", "scoring.txt")
 
     if not os.path.exists(scoring_path):
-        print("[WARN] prompts/scoring.txt non trouvé, scoring ignoré.")
+        logger.warning("[WARN] prompts/scoring.txt non trouvé, scoring ignoré.")
         return segments
 
     with open(scoring_path, 'r', encoding='utf-8') as f:
@@ -401,7 +406,7 @@ def score_segments(segments: list[dict], ai_mode: str, api_key: str | None = Non
 
     prompt = scoring_template.replace("{segments_json}", segments_json)
 
-    print(f"[INFO] Scoring de {len(segments)} segments...")
+    logger.info(f"[INFO] Scoring de {len(segments)} segments...")
 
     if ai_mode == "pleiade":
         response = call_pleiade(prompt, model_name=model_name)
@@ -426,16 +431,16 @@ def score_segments(segments: list[dict], ai_mode: str, api_key: str | None = Non
                 if seg["viral_score"] >= min_score:
                     scored_segments.append(seg)
                 else:
-                    print(f"[SCORING] Segment '{seg.get('title', '')}' filtré (score={seg['viral_score']} < {min_score})")
+                    logger.info(f"[SCORING] Segment '{seg.get('title', '')}' filtré (score={seg['viral_score']} < {min_score})")
             else:
                 scored_segments.append(seg)  # Garder si pas de score
 
         scored_segments.sort(key=lambda x: x.get("viral_score", x.get("score", 0)), reverse=True)
-        print(f"[INFO] Scoring terminé: {len(scored_segments)}/{len(segments)} segments retenus (seuil={min_score})")
+        logger.info(f"[INFO] Scoring terminé: {len(scored_segments)}/{len(segments)} segments retenus (seuil={min_score})")
         return scored_segments
 
     except Exception as e:
-        print(f"[WARN] Échec du scoring: {e}. Tous les segments conservés.")
+        logger.warning(f"[WARN] Échec du scoring: {e}. Tous les segments conservés.")
         return segments
 
 
@@ -469,7 +474,8 @@ def generate_tiktok_captions(
     transcript_text: str,
     ai_mode: str,
     api_key: str | None = None,
-    model_name: str | None = None
+    model_name: str | None = None,
+    content_type: list[str] | None = None
 ) -> list[dict]:
     """Génère une caption TikTok engageante + hashtags pour chaque segment (1 seule passe LLM)."""
     if not segments:
@@ -479,7 +485,7 @@ def generate_tiktok_captions(
     prompt_path = os.path.join(base_dir, "prompts", "tiktok_caption.txt")
 
     if not os.path.exists(prompt_path):
-        print("[WARN] prompts/tiktok_caption.txt non trouvé, captions ignorées.")
+        logger.warning("[WARN] prompts/tiktok_caption.txt non trouvé, captions ignorées.")
         return segments
 
     with open(prompt_path, 'r', encoding='utf-8') as f:
@@ -496,7 +502,9 @@ def generate_tiktok_captions(
         for i, s in enumerate(segments)
     ], ensure_ascii=False)
 
+    types_str = ", ".join(content_type) if content_type else "general"
     prompt = caption_template.replace("{segments_json}", segments_json)
+    prompt = prompt.replace("{content_type}", types_str)
 
     # Debug: save caption prompt
     try:
@@ -506,7 +514,7 @@ def generate_tiktok_captions(
     except Exception:
         pass
 
-    print(f"[INFO] Génération des captions TikTok pour {len(segments)} segments...")
+    logger.info(f"[INFO] Génération des captions TikTok pour {len(segments)} segments...")
 
     if ai_mode == "pleiade":
         response = call_pleiade(prompt, model_name=model_name)
@@ -531,13 +539,19 @@ def generate_tiktok_captions(
 
         caption_map = {c["index"]: c["caption"] for c in captions if "index" in c and "caption" in c}
         for i, seg in enumerate(segments):
-            seg["tiktok_caption"] = caption_map.get(i, "")
+            caption = caption_map.get(i, "")
+            # Garantir #fyp et #pourtoi (filet de securite)
+            if caption and "#fyp" not in caption.lower():
+                caption = caption.rstrip() + " #fyp"
+            if caption and "#pourtoi" not in caption.lower():
+                caption = caption.rstrip() + " #pourtoi"
+            seg["tiktok_caption"] = caption
 
-        print(f"[INFO] Captions TikTok générées pour {len(caption_map)}/{len(segments)} segments.")
+        logger.info(f"[INFO] Captions TikTok générées pour {len(caption_map)}/{len(segments)} segments.")
         return segments
 
     except Exception as e:
-        print(f"[WARN] Échec de la génération des captions TikTok: {e}. Segments conservés sans caption.")
+        logger.warning(f"[WARN] Échec de la génération des captions TikTok: {e}. Segments conservés sans caption.")
         return segments
 
 
@@ -573,22 +587,22 @@ def call_pleiade(prompt: str, model_name: str | None = None) -> str:
             resp = _requests.post(endpoint, headers=headers, json=payload, timeout=120)
             if resp.status_code == 429:
                 wait_time = base_wait * (attempt + 1)
-                print(f"[429] Pléiade rate limit. Waiting {wait_time}s before retry {attempt+1}/{max_retries}...", flush=True)
+                logger.info(f"[429] Pléiade rate limit. Waiting {wait_time}s before retry {attempt+1}/{max_retries}...")
                 time.sleep(wait_time)
                 continue
             resp.raise_for_status()
             data = resp.json()
             return data["choices"][0]["message"]["content"]
         except _requests.exceptions.RequestException as e:
-            print(f"Erreur API Pléiade (tentative {attempt+1}/{max_retries}): {e}")
+            logger.error(f"Erreur API Pléiade (tentative {attempt+1}/{max_retries}): {e}")
             if attempt < max_retries - 1:
                 time.sleep(base_wait)
 
-    print("Échec après max retries sur Pléiade.")
+    logger.error("Échec après max retries sur Pléiade.")
     return "{}"
 
 
-def load_transcript(project_folder):
+def load_transcript(project_folder: str) -> list[dict]:
     """Parses input.tsv or input.srt from the project folder."""
     input_tsv = os.path.join(project_folder, 'input.tsv')
     input_srt = os.path.join(project_folder, 'input.srt')
@@ -613,7 +627,7 @@ def load_transcript(project_folder):
                             'text': text
                         })
         except Exception as e:
-            print(f"Error parsing TSV: {e}")
+            logger.error(f"Error parsing TSV: {e}")
 
     # Fallback to SRT parser if TSV empty/failed
     if not transcript_segments and os.path.exists(input_srt):
@@ -637,7 +651,7 @@ def load_transcript(project_folder):
     
     return transcript_segments
 
-def process_segments(raw_segments, transcript_segments, min_duration, max_duration, output_count=None):
+def process_segments(raw_segments: list[dict], transcript_segments: list[dict], min_duration: int, max_duration: int, output_count: int | None = None) -> dict:
     """
     Aligns raw AI segments (with reference tags) to actual transcript timestamps.
     Applies constraints, validation, and deduplication.
@@ -650,13 +664,13 @@ def process_segments(raw_segments, transcript_segments, min_duration, max_durati
     # Sort segments by score (descending)
     try:
         all_segments.sort(key=lambda x: int(x.get('score', 0)), reverse=True)
-    except:
+    except (ValueError, TypeError):
         pass
 
     # --- POST-PROCESSING: Match Text to Timestamps ---
     processed_segments = []
     
-    print(f"[DEBUG] Matching {len(all_segments)} raw segments to timestamps...")
+    logger.debug(f"[DEBUG] Matching {len(all_segments)} raw segments to timestamps...")
     
     for seg in all_segments:
         try:
@@ -670,7 +684,7 @@ def process_segments(raw_segments, transcript_segments, min_duration, max_durati
                          ref_time_val = int(match.group())
                 else:
                     ref_time_val = int(ref_time_str)
-            except:
+            except (ValueError, TypeError):
                 ref_time_val = 0
                 
             # Find segment index closest to ref_time
@@ -757,20 +771,20 @@ def process_segments(raw_segments, transcript_segments, min_duration, max_durati
                         if s['start'] > end_ref_val + 10:
                             break
                     final_end_time = transcript_segments[best_end_idx]['end']
-                    print(f"[DEBUG] end_text not matched — using end_time_ref={end_ref_val}s → end_time={final_end_time:.2f}s")
+                    logger.debug(f"[DEBUG] end_text not matched — using end_time_ref={end_ref_val}s → end_time={final_end_time:.2f}s")
                 else:
                     fallback_duration = (tempo_minimo + tempo_maximo) / 2
                     final_end_time = final_start_time + fallback_duration
-                    print(f"[DEBUG] end_text and end_time_ref both unavailable — fallback duration {fallback_duration:.0f}s")
+                    logger.debug(f"[DEBUG] end_text and end_time_ref both unavailable — fallback duration {fallback_duration:.0f}s")
             
             # Calculate Duration
             duration = final_end_time - final_start_time
             
             # Log duration warnings but keep LLM choice as-is
             if duration < tempo_minimo:
-                print(f"[WARN] Segmento menor que duration min ({duration:.2f}s < {tempo_minimo}s). Mantendo timestamps do LLM.")
+                logger.warning(f"[WARN] Segmento menor que duration min ({duration:.2f}s < {tempo_minimo}s). Mantendo timestamps do LLM.")
             if duration > tempo_maximo:
-                print(f"[WARN] Segmento excede max duration ({duration:.2f}s > {tempo_maximo}s). Mantendo timestamps do LLM.")
+                logger.warning(f"[WARN] Segmento excede max duration ({duration:.2f}s > {tempo_maximo}s). Mantendo timestamps do LLM.")
 
             # Construct Final Segment
             processed_segments.append({
@@ -784,7 +798,7 @@ def process_segments(raw_segments, transcript_segments, min_duration, max_durati
             })
 
         except Exception as e:
-            print(f"[WARN] Error processing segment {seg}: {e}")
+            logger.error(f"[WARN] Error processing segment {seg}: {e}")
             continue
 
     # Deduplication
@@ -805,16 +819,16 @@ def process_segments(raw_segments, transcript_segments, min_duration, max_durati
                 intersection = overlap_end - overlap_start
                 if intersection > 5: # more than 5 seconds overlap
                     is_dup = True
-                    print(f"[DEBUG] Dropping overlap: '{candidate.get('title')}' ({s1:.1f}-{e1:.1f}) overlaps with '{existing.get('title')}' ({s2:.1f}-{e2:.1f}) by {intersection:.1f}s")
+                    logger.debug(f"[DEBUG] Dropping overlap: '{candidate.get('title')}' ({s1:.1f}-{e1:.1f}) overlaps with '{existing.get('title')}' ({s2:.1f}-{e2:.1f}) by {intersection:.1f}s")
                     break
         if not is_dup:
             unique_segments.append(candidate)
 
     all_segments = unique_segments
-    print(f"[DEBUG] Finished processing. {len(all_segments)} segments valid.")
+    logger.debug(f"[DEBUG] Finished processing. {len(all_segments)} segments valid.")
 
     if output_count and len(all_segments) > output_count:
-        print(f"[INFO] LLM retornou {len(all_segments)} segmentos (pedido: {output_count}). Mantendo todos.")
+        logger.info(f"[INFO] LLM retornou {len(all_segments)} segmentos (pedido: {output_count}). Mantendo todos.")
 
     final_result = {"segments": all_segments}
     
@@ -829,8 +843,8 @@ def process_segments(raw_segments, transcript_segments, min_duration, max_durati
     return final_result
 
 
-def create(num_segments, viral_mode, themes, tempo_minimo, tempo_maximo, ai_mode="manual", api_key=None, project_folder="tmp", chunk_size_arg=None, model_name_arg=None, content_type=None, enable_scoring=True, min_score=70):
-    quantidade_de_virals = num_segments
+def create(num_segments: int | None, viral_mode: bool, themes: str | None, tempo_minimo: int, tempo_maximo: int, ai_mode: str = "manual", api_key: str | None = None, project_folder: str = "tmp", chunk_size_arg: int | str | None = None, model_name_arg: str | None = None, content_type: list[str] | None = None, enable_scoring: bool = True, min_score: int = 70) -> dict:
+    quantidade_de_virals = num_segments if num_segments is not None else 3
 
     # 1. Load Transcript
     transcript_segments = load_transcript(project_folder)
@@ -866,7 +880,7 @@ def create(num_segments, viral_mode, themes, tempo_minimo, tempo_maximo, ai_mode
                 if "pleiade" in loaded_config: config["pleiade"] = loaded_config["pleiade"]
                 if "selected_api" in loaded_config: config["selected_api"] = loaded_config["selected_api"]
         except Exception as e:
-            print(f"Erro ao ler api_config.json: {e}")
+            logger.error(f"Erro ao ler api_config.json: {e}")
 
     # Config Vars
     current_chunk_size = 15000
@@ -916,7 +930,7 @@ def create(num_segments, viral_mode, themes, tempo_minimo, tempo_maximo, ai_mode
                 content_signals + "\n\n### YOUR TASK"
             )
     else:
-        print("Aviso: prompt.txt não encontrado. Usando prompt interno.")
+        logger.warning("Aviso: prompt.txt não encontrado. Usando prompt interno.")
         system_prompt_template = """You are a World-Class Viral Video Editor.
 {context_instruction}
 Analyze the transcript below with time tags (XXs). Find {amount} viral segments.
@@ -928,33 +942,9 @@ OUTPUT JSON ONLY:
 {json_template}"""
 
 
-    json_template = '''
-            { "segments" :
-                [
-                    {
-                        "start_text": "REPLACE with exact first 5-10 words from the transcript at segment start — copy verbatim",
-                        "end_text": "REPLACE with exact last 5-10 words from the transcript at segment end — copy verbatim — MUST be DIFFERENT from start_text",
-                        "start_time_ref": 0,
-                        "end_time_ref": 0,
-                        "title": "REPLACE with viral title in transcript language",
-                        "reasoning": "REPLACE with why this is viral, in transcript language",
-                        "score": 75
-                    }
-                ]
-            }
+    json_template = '''{"segments": [{"start_text": "exact 5-10 first words at segment start", "end_text": "exact 5-10 last words at segment end (DIFFERENT from start_text)", "start_time_ref": 0, "end_time_ref": 0, "title": "viral title in transcript language", "reasoning": "why this is viral (1 sentence)", "score": 75}]}
 
-            SCORE RULES: Be critical and honest. 90+ = truly exceptional (max 1 per video). 75-89 = strong. 60-74 = decent. Below 60 = skip it. Most segments should be 65-80, NOT 90.
-
-            IMPORTANT RULES FOR start_time_ref / end_time_ref:
-            - Both must be plain integers (the (XXs) tag number, no unit suffix)
-            - end_time_ref MUST be start_time_ref + ''' + str(tempo_minimo) + ''' to ''' + str(tempo_maximo) + ''' (NEVER less than ''' + str(tempo_minimo) + '''s gap)
-            - TARGET duration: 60-80s — ''' + str(tempo_minimo) + '''s is the ABSOLUTE MINIMUM (hard floor), NOT a target
-            - PREFERRED target gap: 75s (e.g. if start=800, end should be around 875)
-            - NEVER return end_time_ref ≈ start_time_ref (e.g. start=500, end=513 is WRONG)
-            - start_text and end_text MUST be DIFFERENT phrases from DIFFERENT moments in the transcript
-            - WRONG: start_text="phrase X" AND end_text="phrase X" (identical — FORBIDDEN)
-            - CORRECT: start_text="opening line of scene" AND end_text="closing line or reaction ''' + str(tempo_minimo) + '''-90s later"
-        '''
+Rules: integers only for times. Duration (end - start) must be ''' + str(tempo_minimo) + '''-''' + str(tempo_maximo) + '''s. Target 60-80s. Score: 90+ = exceptional (max 1), 75-89 = strong, 60-74 = decent, <60 = skip.'''
 
     # Chunking
     chunk_size = int(current_chunk_size)
@@ -964,7 +954,7 @@ OUTPUT JSON ONLY:
     start = 0
     content_len = len(content)
 
-    print(f"[DEBUG] Chunking content (Size: {content_len}) with Chunk Size: {chunk_size} and Overlap: {overlap_size}")
+    logger.debug(f"[DEBUG] Chunking content (Size: {content_len}) with Chunk Size: {chunk_size} and Overlap: {overlap_size}")
 
     while start < content_len:
         end = min(start + chunk_size, content_len)
@@ -996,7 +986,14 @@ OUTPUT JSON ONLY:
     for i, chunk in enumerate(chunks):
         context_instruction = ""
         if num_chunks > 1:
-            context_instruction = f"Part {i+1} of {num_chunks}. "
+            chunk_times = [int(m) for m in re.findall(r'\((\d+)s\)', chunk)]
+            if chunk_times:
+                context_instruction = (
+                    f"Part {i+1} of {num_chunks} (timestamps {chunk_times[0]}s to {chunk_times[-1]}s). "
+                    f"Find segments ONLY within this time range. "
+                )
+            else:
+                context_instruction = f"Part {i+1} of {num_chunks}. "
 
         chunk_amount = amount_per_chunk
 
@@ -1036,16 +1033,16 @@ OUTPUT JSON ONLY:
         with open(full_prompt_path, "w", encoding="utf-8") as f:
             f.write(full_prompt)
     except Exception as e:
-        print(f"[WARN] Could not save prompt_full.txt: {e}")
+        logger.warning(f"[WARN] Could not save prompt_full.txt: {e}")
 
     all_raw_segments = []
 
-    print(f"Processando {len(output_texts)} chunks usando modo: {ai_mode.upper()}")
+    logger.info(f"Processando {len(output_texts)} chunks usando modo: {ai_mode.upper()}")
 
     local_llm_instance = None
     if ai_mode == "local":
         if not HAS_LLAMA_CPP:
-            print("Error: llama-cpp-python not installed. Please install it to use Local mode.")
+            logger.error("Error: llama-cpp-python not installed. Please install it to use Local mode.")
             return {"segments": []}
             
         models_dir = os.path.join(base_dir, 'models')
@@ -1054,10 +1051,10 @@ OUTPUT JSON ONLY:
              if os.path.exists(model_name):
                  model_path = model_name
              else:
-                 print(f"Error: Model not found at {model_path}")
+                 logger.error(f"Error: Model not found at {model_path}")
                  return {"segments": []}
         
-        print(f"[INFO] Loading Local Model: {os.path.basename(model_path)} (This may take a while)...")
+        logger.info(f"[INFO] Loading Local Model: {os.path.basename(model_path)} (This may take a while)...")
         try:
             local_llm_instance = Llama(
                 model_path=model_path,
@@ -1066,7 +1063,7 @@ OUTPUT JSON ONLY:
                 verbose=False
             )
         except Exception as e:
-            print(f"Failed to load model: {e}")
+            logger.error(f"Failed to load model: {e}")
             return {"segments": []}
 
     for i, prompt in enumerate(output_texts):
@@ -1076,21 +1073,21 @@ OUTPUT JSON ONLY:
             with open(manual_prompt_path, "w", encoding="utf-8") as f:
                 f.write(prompt)
         except Exception as e:
-            print(f"[ERRO] Falha ao salvar prompt.txt: {e}")
+            logger.error(f"[ERRO] Falha ao salvar prompt.txt: {e}")
         
         if ai_mode == "manual":
-            print(f"\n[INFO] O prompt foi salvo em: {manual_prompt_path}")
-            print("\n" + "="*60)
-            print(f"CHUNK {i+1}/{len(output_texts)}")
-            print("="*60)
-            print("COPIE O PROMPT ABAIXO (OU DO ARQUIVO GERADO) E COLE NA SUA IA PREFERIDA:")
-            print("-" * 20)
-            print(prompt)
-            print("-" * 20)
-            print("="*60)
-            print("Cole o JSON de resposta abaixo e pressione ENTER.")
-            print("Dica: Se o JSON tiver múltiplas linhas, tente colar tudo de uma vez ou minificado.")
-            print("Se preferir, digite 'file' para ler de um arquivo 'tmp/response.json'.")
+            logger.info(f"\n[INFO] O prompt foi salvo em: {manual_prompt_path}")
+            logger.info("\n" + "="*60)
+            logger.info(f"CHUNK {i+1}/{len(output_texts)}")
+            logger.info("="*60)
+            logger.info("COPIE O PROMPT ABAIXO (OU DO ARQUIVO GERADO) E COLE NA SUA IA PREFERIDA:")
+            logger.info("-" * 20)
+            logger.info(prompt)
+            logger.info("-" * 20)
+            logger.info("="*60)
+            logger.info("Cole o JSON de resposta abaixo e pressione ENTER.")
+            logger.info("Dica: Se o JSON tiver múltiplas linhas, tente colar tudo de uma vez ou minificado.")
+            logger.info("Se preferir, digite 'file' para ler de um arquivo 'tmp/response.json'.")
             
             user_input = input("JSON ou 'file': ")
             
@@ -1100,28 +1097,28 @@ OUTPUT JSON ONLY:
                     with open(response_json_path, 'r', encoding='utf-8') as rf:
                         response_text = rf.read()
                 except FileNotFoundError:
-                    print(f"Arquivo {response_json_path} não encontrado.")
+                    logger.info(f"Arquivo {response_json_path} não encontrado.")
             else:
                 response_text = user_input
                 if response_text.strip().startswith("{") and not response_text.strip().endswith("}"):
-                    print("Parece incompleto. Cole o resto e dê Enter (ou Ctrl+C para cancelar):")
+                    logger.info("Parece incompleto. Cole o resto e dê Enter (ou Ctrl+C para cancelar):")
                     try:
-                        rest = sys.stdin.read() 
+                        rest = sys.stdin.read()
                         response_text += rest
-                    except:
+                    except (KeyboardInterrupt, EOFError):
                         pass
 
         elif ai_mode == "gemini":
-            print(f"Enviando chunk {i+1} para o Gemini (Model: {model_name})...")
+            logger.info(f"Enviando chunk {i+1} para o Gemini (Model: {model_name})...")
             response_text = call_gemini(prompt, api_key, model_name=model_name)
         elif ai_mode == "g4f":
-            print(f"Enviando chunk {i+1} para o G4F (Model: {model_name})...")
+            logger.info(f"Enviando chunk {i+1} para o G4F (Model: {model_name})...")
             response_text = call_g4f(prompt, model_name=model_name)
         elif ai_mode == "pleiade":
-            print(f"Enviando chunk {i+1} para Pléiade (Model: {model_name})...")
+            logger.info(f"Enviando chunk {i+1} para Pléiade (Model: {model_name})...")
             response_text = call_pleiade(prompt, model_name=model_name)
         elif ai_mode == "local" and local_llm_instance:
-            print(f"Processing chunk {i+1} with Local LLM...")
+            logger.info(f"Processing chunk {i+1} with Local LLM...")
             try:
                 output = local_llm_instance.create_chat_completion(
                     messages=[
@@ -1133,7 +1130,7 @@ OUTPUT JSON ONLY:
                 )
                 response_text = output['choices'][0]['message']['content']
             except Exception as e:
-                print(f"Error evaluating local model: {e}")
+                logger.error(f"Error evaluating local model: {e}")
                 response_text = "{}"
 
         # --- Save RAW Response for Debugging ---
@@ -1141,20 +1138,20 @@ OUTPUT JSON ONLY:
             raw_response_path = os.path.join(project_folder, f"response_raw_part_{i+1}.txt")
             with open(raw_response_path, "w", encoding="utf-8") as f:
                 f.write(response_text)
-            print(f"[DEBUG] Raw response saved to: {raw_response_path}")
+            logger.debug(f"[DEBUG] Raw response saved to: {raw_response_path}")
         except Exception as e:
-            print(f"[WARN] Failed to save raw response: {e}")
+            logger.warning(f"Failed to save raw response: {e}")
 
         # Processar resposta
         try:
             data = clean_json_response(response_text)
             chunk_segments = data.get("segments", [])
-            print(f"Encontrados {len(chunk_segments)} segmentos neste chunk.")
+            logger.info(f"Encontrados {len(chunk_segments)} segmentos neste chunk.")
             all_raw_segments.extend(chunk_segments)
         except json.JSONDecodeError:
-            print(f"Erro: Resposta inválida.")
+            logger.error(f"Erro: Resposta inválida.")
         except Exception as e:
-            print(f"Erro desconhecido ao processar chunk: {e}")
+            logger.error(f"Erro desconhecido ao processar chunk: {e}")
 
     # Call the alignment / processing logic
     result = process_segments(
@@ -1170,5 +1167,9 @@ OUTPUT JSON ONLY:
         result["segments"] = score_segments(
             result["segments"], ai_mode, api_key, model_name, min_score=min_score
         )
+
+    # Stocker le content_type pour usage ulterieur (captions, etc.)
+    if content_type:
+        result["content_type"] = content_type
 
     return result

@@ -1,6 +1,9 @@
 import json
+import logging
 import re
 import os
+
+logger = logging.getLogger(__name__)
 
 # Couleurs ASS (format &HBBGGRR&) pour les power words par catégorie
 POWER_WORD_COLORS = {
@@ -44,7 +47,7 @@ def generate_ass_from_file(input_path, output_path, project_folder,
         try:
              with open(renamed_timeline_path, "r") as tf:
                  timeline_data = json.load(tf)
-        except: pass
+        except (OSError, json.JSONDecodeError): pass
     
     # Check for Index (outputXXX or XXX_Title)
     match_output = re.search(r"output(\d+)", filename)
@@ -62,7 +65,7 @@ def generate_ass_from_file(input_path, output_path, project_folder,
              try:
                  with open(csv_timeline, "r") as tf:
                      timeline_data = json.load(tf)
-             except: pass
+             except (OSError, json.JSONDecodeError): pass
 
     # 2. Determine Style Overrides (Face Mode)
     # Determine static alignment (fallback)
@@ -85,9 +88,9 @@ def generate_ass_from_file(input_path, output_path, project_folder,
             json_data = json.load(file)
         
         segments_count = len(json_data.get('segments', []))
-        print(f"[DEBUG] Loaded {input_path}: Found {segments_count} segments.")
+        logger.debug(f"[DEBUG] Loaded {input_path}: Found {segments_count} segments.")
     except Exception as e:
-        print(f"[ERROR] Loading JSON {input_path}: {e}")
+        logger.error(f"[ERROR] Loading JSON {input_path}: {e}")
         return
 
     # 4. Generate Content
@@ -228,9 +231,9 @@ def generate_ass_from_file(input_path, output_path, project_folder,
                     total_lines_written += 1
     
     if total_lines_written == 0:
-        print(f"[WARN] No dialogue lines written for {input_path}")
+        logger.warning(f"[WARN] No dialogue lines written for {input_path}")
     else:
-        print(f"[DEBUG] Wrote {total_lines_written} lines to {output_path}")
+        logger.debug(f"[DEBUG] Wrote {total_lines_written} lines to {output_path}")
 
 
 def adjust(base_color, base_size, highlight_size, highlight_color, words_per_block, gap_limit, mode, vertical_position, alignment, font, outline_color, shadow_color, bold, italic, underline, strikeout, border_style, outline_thickness, shadow_size, uppercase=False, project_folder="tmp", **kwargs):
@@ -251,13 +254,13 @@ def adjust(base_color, base_size, highlight_size, highlight_color, words_per_blo
         try:
              with open(modes_file, "r") as f:
                  face_modes = json.load(f)
-             print("Loaded face modes for dynamic subtitle positioning.")
+             logger.info("Loaded face modes for dynamic subtitle positioning.")
         except Exception as e:
-            print(f"Could not load face modes: {e}")
+            logger.warning(f"Could not load face modes: {e}")
 
     # Process all JSON files in input directory
     if not os.path.exists(input_dir):
-        print(f"[ERROR] Subtitle folder missing: {input_dir}")
+        logger.error(f"[ERROR] Subtitle folder missing: {input_dir}")
         raise FileNotFoundError(f"Subtitle folder missing at {input_dir}. Ensure transcription completed successfully.")
 
     # Pre-load viral_segments.txt once to avoid N reads per segment
@@ -292,6 +295,6 @@ def adjust(base_color, base_size, highlight_size, highlight_color, words_per_blo
                            strikeout, border_style, outline_thickness, shadow_size, uppercase,
                            face_modes, remove_punctuation, power_words_map)
 
-            print(f"Processed file: {filename} -> {output_filename}")
+            logger.info(f"Processed file: {filename} -> {output_filename}")
 
-    print("All JSON files processed and converted to ASS.")
+    logger.info("All JSON files processed and converted to ASS.")

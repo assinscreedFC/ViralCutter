@@ -1,9 +1,12 @@
+import logging
 import os
 import json
 import asyncio
 from pathlib import Path
 import tqdm.asyncio
 from deep_translator import GoogleTranslator
+
+logger = logging.getLogger(__name__)
 
 # Lista de idiomas alvo
 target_languages = ['en']
@@ -39,7 +42,7 @@ async def translate_chunk(index, chunk, target_lang):
 
             return translated_chunk
         except Exception as e:
-            print(f"\r[chunk {index}]: Exception: {e.__doc__} Retrying in 30 seconds...", flush=True)
+            logger.warning(f"[chunk {index}]: Exception: {e.__doc__} Retrying in 30 seconds...")
             await asyncio.sleep(30)
 
 def join_sentences(texts, max_chars):
@@ -190,7 +193,7 @@ async def translate_json_file(json_file_path: Path, translated_json_path: Path, 
 
     await translate_async()
 
-    print('Processing translation...', end='')
+    logger.info('Processing translation...')
 
     unjoined_texts = [unjoin_sentences(chunk, translated_chunks[i], separator_unjoin) for i, chunk in enumerate(chunks)]
     unjoined_texts = [text for sublist in unjoined_texts for text in sublist if text]
@@ -209,7 +212,7 @@ async def translate_json_file(json_file_path: Path, translated_json_path: Path, 
                 word['word'] = translated_words[word_index]
                 word_index += 1
             else:
-                print(f"\nWarning: Not enough translated words. Keeping original word: {word['word']}")
+                logger.warning(f"\nWarning: Not enough translated words. Keeping original word: {word['word']}")
 
     # Ajusta os segmentos após a tradução
     segments = adjust_segments(segments)
@@ -220,7 +223,7 @@ async def translate_json_file(json_file_path: Path, translated_json_path: Path, 
     with open(translated_json_path, 'w', encoding='utf-8') as file:
         json.dump(data, file, ensure_ascii=False, indent=2)
 
-    print('\r                         ', end='\r')
+    logger.info('Translation processing complete.')
 
     return data
     
@@ -236,7 +239,7 @@ async def main():
                 output_file_path = os.path.join(folder_path, output_filename)
                 
                 if not os.path.exists(output_file_path):
-                    print(f'Traduzindo para {lang}: {filename}')
+                    logger.info(f'Traduzindo para {lang}: {filename}')
                     translated_data = await translate_json_file(Path(os.path.join(folder_path, filename)), Path(output_file_path), lang)
                     
                     if lang in substituicoes_por_idioma:
@@ -261,7 +264,7 @@ async def main():
             with open(original_file_path, 'w', encoding='utf-8') as file:
                 json.dump(original_data, file, ensure_ascii=False, indent=2)
 
-    print('Traduções e substituições concluídas.')
+    logger.info('Traduções e substituições concluídas.')
 
 async def translate_project_subs(project_folder: str, target_lang: str):
     """
@@ -270,17 +273,17 @@ async def translate_project_subs(project_folder: str, target_lang: str):
     """
     subs_folder = Path(project_folder) / "subs"
     if not subs_folder.exists():
-        print(f"Subtitle folder not found: {subs_folder}")
+        logger.error(f"Subtitle folder not found: {subs_folder}")
         return
 
     # Look for files ending in _processed.json
     json_files = list(subs_folder.glob("*_processed.json"))
     
     if not json_files:
-        print("No subtitle files found to translate.")
+        logger.warning("No subtitle files found to translate.")
         return
 
-    print(f"Found {len(json_files)} subtitle files to translate to '{target_lang}'...")
+    logger.info(f"Found {len(json_files)} subtitle files to translate to '{target_lang}'...")
 
     for json_file in json_files:
         # Backup logic
@@ -288,21 +291,21 @@ async def translate_project_subs(project_folder: str, target_lang: str):
         
         source_file = json_file
         if backup_file.exists():
-             print(f"Using existing backup for {json_file.name} as source.")
+             logger.info(f"Using existing backup for {json_file.name} as source.")
              source_file = backup_file
         else:
-             print(f"Backing up original to {backup_file.name}...")
+             logger.info(f"Backing up original to {backup_file.name}...")
              try:
                 # Rename current to backup
                 json_file.rename(backup_file)
                 source_file = backup_file
              except Exception as e:
-                 print(f"Error creating backup for {json_file.name}: {e}")
+                 logger.error(f"Error creating backup for {json_file.name}: {e}")
                  continue
         
         # Translate source (backup) -> target (original filename)
         # effectively replacing the file read by the next step
-        print(f"Translating {source_file.name} -> {json_file.name} ({target_lang})...")
+        logger.info(f"Translating {source_file.name} -> {json_file.name} ({target_lang})...")
         try:
             await translate_json_file(source_file, json_file, target_lang)
             
@@ -332,13 +335,13 @@ async def translate_project_subs(project_folder: str, target_lang: str):
                          json.dump(data, f, ensure_ascii=False, indent=2)
 
         except Exception as e:
-            print(f"Error translating {json_file.name}: {e}")
+            logger.error(f"Error translating {json_file.name}: {e}")
             # If failed and output doesn't exist, try to restore backup?
             if not json_file.exists() and backup_file.exists():
-                print("Restoring backup due to failure...")
+                logger.warning("Restoring backup due to failure...")
                 backup_file.rename(json_file)
 
-    print("Translation batch finished.")
+    logger.info("Translation batch finished.")
 
 if __name__ == "__main__":
     asyncio.run(main())

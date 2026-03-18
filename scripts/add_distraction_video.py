@@ -22,11 +22,14 @@ Usage CLI :
 =============================================================================
 """
 
+import logging
 import os
 import subprocess
 import random
 import json
 import argparse
+
+logger = logging.getLogger(__name__)
 
 try:
     from scripts.fetch_distraction import fetch_distraction, DEFAULT_DISTRACTION_DIR, needs_refresh
@@ -41,13 +44,13 @@ except ImportError:
         needs_refresh = None
 
 
-# Résolution cible pour chaque moitié
-HALF_WIDTH = 1080
-HALF_HEIGHT = 960
-
-# Résolution finale (9:16 TikTok)
+# Résolution de sortie finale (9:16 TikTok)
 OUTPUT_WIDTH = 1080
 OUTPUT_HEIGHT = 1920
+HALF_WIDTH = 1080
+
+# Ratio par défaut de la distraction (35% de la hauteur totale)
+DISTRACTION_RATIO_DEFAULT = 0.35
 
 
 # ---------------------------------------------------------------------------
@@ -101,29 +104,36 @@ def _pick_distraction_video(distraction_dir: str, distraction_file: str | None) 
 # FFmpeg : stack deux vidéos verticalement
 # ---------------------------------------------------------------------------
 
-def _build_ffmpeg_filter(main_duration: float, available_distraction: float, main_crop_y: int | None = None) -> str:
+def _build_ffmpeg_filter(
+    main_duration: float,
+    available_distraction: float,
+    main_crop_y: int | None = None,
+    distraction_ratio: float = DISTRACTION_RATIO_DEFAULT,
+) -> str:
     """
     Construit le filtre FFmpeg pour empiler les deux vidéos.
 
-    - Les deux flux sont scalés et croppés en HALF_WIDTH × HALF_HEIGHT
+    - Vidéo principale  : HALF_WIDTH × main_height  (haut)
+    - Vidéo distraction : HALF_WIDTH × dist_height  (bas)
+    - distraction_ratio : part de la hauteur totale pour la distraction (ex: 0.35 = 35%)
     - Si la distraction disponible est plus courte, elle est loopée
     - L'audio de la distraction est désactivé
-    - main_crop_y : offset Y du crop pour la vidéo principale (None = crop centré par défaut)
-      Utiliser main_crop_y=0 en mode 2 faces pour éviter de couper le visage du haut.
+    - main_crop_y : offset Y du crop pour la vidéo principale (None = crop depuis le haut, y=0).
     """
-    # Crop centré (défaut) pour la vidéo de distraction
+    main_height = int(OUTPUT_HEIGHT * (1 - distraction_ratio))
+    dist_height = OUTPUT_HEIGHT - main_height
+
+    # Affiche la vidéo de distraction en entier (letterbox si besoin) pour éviter
+    # qu'un contenu paysage 16:9 ou portrait 9:16 soit trop agressivement cropé.
     distraction_scale_crop = (
-        f"scale={HALF_WIDTH}:{HALF_HEIGHT}:force_original_aspect_ratio=increase,"
-        f"crop={HALF_WIDTH}:{HALF_HEIGHT}"
+        f"scale={HALF_WIDTH}:{dist_height}:force_original_aspect_ratio=decrease,"
+        f"pad={HALF_WIDTH}:{dist_height}:(ow-iw)/2:(oh-ih)/2:black"
     )
-    # Crop avec offset explicite pour la vidéo principale
-    if main_crop_y is not None:
-        main_scale_crop = (
-            f"scale={HALF_WIDTH}:{HALF_HEIGHT}:force_original_aspect_ratio=increase,"
-            f"crop={HALF_WIDTH}:{HALF_HEIGHT}:0:{main_crop_y}"
-        )
-    else:
-        main_scale_crop = distraction_scale_crop
+    crop_y = main_crop_y if main_crop_y is not None else 0
+    main_scale_crop = (
+        f"scale={HALF_WIDTH}:{main_height}:force_original_aspect_ratio=increase,"
+        f"crop={HALF_WIDTH}:{main_height}:0:{crop_y}"
+    )
 
     top_filter = f"[0:v]{main_scale_crop}[top]"
 
@@ -143,6 +153,7 @@ def stack_videos(
     distraction_video: str,
     output_path: str,
     main_crop_y: int | None = None,
+    distraction_ratio: float = DISTRACTION_RATIO_DEFAULT,
 ) -> bool:
     """
     Empile main_video (haut) + distraction_video (bas) dans output_path.
@@ -154,7 +165,7 @@ def stack_videos(
     distraction_duration = _get_video_duration(distraction_video)
 
     if main_duration <= 0:
-        print(f"[SPLIT] Durée invalide pour {os.path.basename(main_video)}, ignoré")
+        logger.info(f"[SPLIT] Durée invalide pour {os.path.basename(main_video)}, ignoré")
         return False
 
     # Offset aléatoire dans la vidéo de distraction
@@ -163,9 +174,9 @@ def stack_videos(
     available_distraction = distraction_duration - distraction_start
 
     if distraction_start > 1.0:
-        print(f"[SPLIT] Distraction offset : {distraction_start:.0f}s / {distraction_duration:.0f}s")
+        logger.info(f"[SPLIT] Distraction offset : {distraction_start:.0f}s / {distraction_duration:.0f}s")
 
-    video_filter = _build_ffmpeg_filter(main_duration, available_distraction, main_crop_y=main_crop_y)
+    video_filter = _build_ffmpeg_filter(main_duration, available_distraction, main_crop_y=main_crop_y, distraction_ratio=distraction_ratio)
 
     cmd = [
         "ffmpeg",
@@ -190,14 +201,14 @@ def stack_videos(
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         if result.returncode != 0:
-            print(f"[SPLIT] Erreur FFmpeg : {result.stderr[-500:]}")
+            logger.error(f"[SPLIT] Erreur FFmpeg : {result.stderr[-500:]}")
             return False
         return True
     except subprocess.TimeoutExpired:
-        print(f"[SPLIT] Timeout pour {os.path.basename(main_video)}")
+        logger.error(f"[SPLIT] Timeout pour {os.path.basename(main_video)}")
         return False
     except FileNotFoundError:
-        print("[ERROR] ffmpeg introuvable.")
+        logger.error("[ERROR] ffmpeg introuvable.")
         return False
 
 
@@ -211,6 +222,7 @@ def add_distraction_to_project(
     distraction_file: str | None = None,
     no_fetch: bool = False,
     main_crop_y: int | None = None,
+    distraction_ratio: float = DISTRACTION_RATIO_DEFAULT,
 ) -> list[str]:
     """
     Ajoute la vidéo de distraction à tous les clips d'un projet.
@@ -227,10 +239,10 @@ def add_distraction_to_project(
     # Auto-fetch si nécessaire (sauf si désactivé)
     if not no_fetch and fetch_distraction is not None and needs_refresh is not None:
         if needs_refresh(distraction_dir):
-            print("[SPLIT] Téléchargement des vidéos de distraction...")
+            logger.info("[SPLIT] Téléchargement des vidéos de distraction...")
             fetch_distraction(distraction_dir)
     elif not _video_files_in(distraction_dir):
-        print(f"[SPLIT][WARN] Aucune vidéo dans {distraction_dir} et fetch_distraction indisponible")
+        logger.warning(f"[SPLIT][WARN] Aucune vidéo dans {distraction_dir} et fetch_distraction indisponible")
         return []
 
     # Chercher les clips sources
@@ -244,11 +256,11 @@ def add_distraction_to_project(
         clips = _video_files_in(d)
         if clips:
             source_clips = sorted(clips)
-            print(f"[SPLIT] Source clips : {d} ({len(source_clips)} fichiers)")
+            logger.info(f"[SPLIT] Source clips : {d} ({len(source_clips)} fichiers)")
             break
 
     if not source_clips:
-        print(f"[SPLIT][WARN] Aucun clip trouvé dans {project_folder}")
+        logger.warning(f"[SPLIT][WARN] Aucun clip trouvé dans {project_folder}")
         return []
 
     # Dossier output
@@ -262,25 +274,25 @@ def add_distraction_to_project(
         output_path = os.path.join(output_dir, f"{clip_name}_split.mp4")
 
         if os.path.exists(output_path):
-            print(f"[SPLIT] Déjà existant, ignoré : {os.path.basename(output_path)}")
+            logger.info(f"[SPLIT] Déjà existant, ignoré : {os.path.basename(output_path)}")
             generated.append(output_path)
             continue
 
         # Sélection vidéo distraction
         distraction = _pick_distraction_video(distraction_dir, distraction_file)
         if not distraction:
-            print(f"[SPLIT][WARN] Aucune vidéo distraction disponible pour {clip_name}")
+            logger.warning(f"[SPLIT][WARN] Aucune vidéo distraction disponible pour {clip_name}")
             continue
 
-        print(f"[SPLIT] {os.path.basename(clip_path)} + {os.path.basename(distraction)} → {os.path.basename(output_path)}")
-        success = stack_videos(clip_path, distraction, output_path, main_crop_y=main_crop_y)
+        logger.info(f"[SPLIT] {os.path.basename(clip_path)} + {os.path.basename(distraction)} → {os.path.basename(output_path)}")
+        success = stack_videos(clip_path, distraction, output_path, main_crop_y=main_crop_y, distraction_ratio=distraction_ratio)
         if success:
             generated.append(output_path)
-            print(f"[SPLIT] OK : {os.path.basename(output_path)}")
+            logger.info(f"[SPLIT] OK : {os.path.basename(output_path)}")
         else:
-            print(f"[SPLIT] ÉCHEC : {os.path.basename(clip_path)}")
+            logger.error(f"[SPLIT] ÉCHEC : {os.path.basename(clip_path)}")
 
-    print(f"[SPLIT] {len(generated)}/{len(source_clips)} clips générés dans {output_dir}")
+    logger.info(f"[SPLIT] {len(generated)}/{len(source_clips)} clips générés dans {output_dir}")
     return generated
 
 
@@ -294,6 +306,8 @@ if __name__ == "__main__":
     parser.add_argument("--distraction-dir", default=DEFAULT_DISTRACTION_DIR, help="Dossier des vidéos de distraction")
     parser.add_argument("--distraction-file", default=None, help="Vidéo de distraction spécifique (override aléatoire)")
     parser.add_argument("--no-fetch", action="store_true", help="Désactiver l'auto-fetch (utiliser le cache uniquement)")
+    parser.add_argument("--distraction-ratio", type=float, default=DISTRACTION_RATIO_DEFAULT,
+                        help=f"Part de la hauteur pour la distraction (0.20-0.50, défaut {DISTRACTION_RATIO_DEFAULT})")
     args = parser.parse_args()
 
     results = add_distraction_to_project(
@@ -301,5 +315,6 @@ if __name__ == "__main__":
         distraction_dir=args.distraction_dir,
         distraction_file=args.distraction_file,
         no_fetch=args.no_fetch,
+        distraction_ratio=args.distraction_ratio,
     )
-    print(f"\n[SPLIT] Terminé — {len(results)} vidéos split-screen créées")
+    logger.info(f"\n[SPLIT] Terminé — {len(results)} vidéos split-screen créées")

@@ -1,3 +1,4 @@
+import logging
 import os
 import json
 import shutil
@@ -5,6 +6,8 @@ import re
 from i18n.i18n import I18nAuto
 
 i18n = I18nAuto()
+
+logger = logging.getLogger(__name__)
 
 def sanitize_filename(name):
     """Remove caracteres inválidos para nomes de arquivos/pastas."""
@@ -15,7 +18,7 @@ def sanitize_filename(name):
     return cleaned
 
 def organize():
-    print(i18n("Organizing output files..."))
+    logger.info(i18n("Organizing output files..."))
     
     # Caminhos
     meta_path = "tmp/viral_segments.txt"
@@ -23,7 +26,7 @@ def organize():
     virals_root = "VIRALS"
     
     if not os.path.exists(meta_path):
-        print(i18n("Metadata file not found: ") + meta_path)
+        logger.error(i18n("Metadata file not found: ") + meta_path)
         return
         
     try:
@@ -31,7 +34,7 @@ def organize():
             data = json.load(f)
             segments = data.get("segments", [])
     except Exception as e:
-        print(i18n("Error reading metadata: ") + str(e))
+        logger.error(i18n("Error reading metadata: ") + str(e))
         return
 
     os.makedirs(virals_root, exist_ok=True)
@@ -66,7 +69,7 @@ def organize():
                 source_video = source_video_final
             else:
                 # Tenta padrao sem 'original_scale' ou outras variações se necessário
-                print(i18n(f"Warning: Could not find video file for segment {i+1} ({title})"))
+                logger.warning(i18n(f"Warning: Could not find video file for segment {i+1} ({title})"))
                 continue
                 
         # Define caminhos finais
@@ -77,7 +80,7 @@ def organize():
         try:
             shutil.copy2(source_video, target_video)
         except Exception as e:
-            print(i18n(f"Error copying video for segment {i}: {e}"))
+            logger.error(i18n(f"Error copying video for segment {i}: {e}"))
             continue
             
         # Salvar JSON individual
@@ -85,12 +88,12 @@ def organize():
             with open(target_json, 'w', encoding='utf-8') as f:
                 json.dump(segment, f, ensure_ascii=False, indent=4)
         except Exception as e:
-            print(i18n(f"Error saving JSON for segment {i}: {e}"))
+            logger.error(i18n(f"Error saving JSON for segment {i}: {e}"))
             
         processed_count += 1
-        print(i18n(f"Saved: {clean_title}"))
+        logger.info(i18n(f"Saved: {clean_title}"))
 
-    print(i18n(f"Organization completed. {processed_count} virals saved in '{virals_root}' folder."))
+    logger.info(i18n(f"Organization completed. {processed_count} virals saved in '{virals_root}' folder."))
 
 if __name__ == "__main__":
     organize()
