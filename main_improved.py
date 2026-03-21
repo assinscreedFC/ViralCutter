@@ -148,6 +148,7 @@ def main() -> None:
     parser.add_argument("--content-type", choices=["auto", "anime", "comedy", "commentary", "cooking", "education", "gaming", "manga", "motivation", "music", "news", "podcast", "sport", "talkshow", "vlog"], action="append", dest="content_type", default=None, help="Content type for adaptive prompts, repeatable for multi-label (e.g. --content-type gaming --content-type comedy)")
     parser.add_argument("--enable-scoring", action="store_true", help="Enable LLM scoring pass to filter low-quality segments")
     parser.add_argument("--min-score", type=int, default=70, help="Minimum viral score to keep a segment (0-100, default: 70)")
+    parser.add_argument("--enable-validation", action="store_true", help="Enable LLM validation pass (hook strength, standalone test, narrative arc, viral value)")
     parser.add_argument("--zoom-out-factor", type=float, default=2.2, help="Zoom out factor for 2-face mode (default: 2.2)")
     parser.add_argument("--add-music", action="store_true", help="Add background music to final clips")
     parser.add_argument("--music-dir", help="Directory with background music files (default: music/)")
@@ -542,7 +543,8 @@ def main() -> None:
                         model_name_arg=args.ai_model_name,
                         content_type=content_type_arg,
                         enable_scoring=args.enable_scoring,
-                        min_score=args.min_score
+                        min_score=args.min_score,
+                        enable_validation=args.enable_validation
                     )
                 
                 if not viral_segments or not viral_segments.get("segments"):
@@ -597,6 +599,17 @@ def main() -> None:
                     model_name=args.ai_model_name,
                     content_type=viral_segments.get("content_type")
                 )
+                # Validation des captions (si validation activée)
+                if args.enable_validation:
+                    logger.info(i18n("Validating TikTok captions..."))
+                    viral_segments["segments"] = create_viral_segments.validate_captions(
+                        viral_segments["segments"],
+                        transcript_text,
+                        ai_mode=ai_backend,
+                        api_key=api_key,
+                        model_name=args.ai_model_name,
+                    )
+
                 save_json.save_viral_segments(viral_segments, project_folder=project_folder)
             except Exception as e:
                 logger.warning(f"TikTok caption generation failed: {e}")

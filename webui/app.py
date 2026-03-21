@@ -135,12 +135,16 @@ def generate_captions_for_project(proj_name: str):
             segments, transcript_text, ai_mode=ai_mode, api_key=api_key, model_name=model_name,
             content_type=viral_segments.get("content_type")
         )
+        # Validation des captions
+        updated = create_viral_segments.validate_captions(
+            updated, transcript_text, ai_mode=ai_mode, api_key=api_key, model_name=model_name
+        )
         viral_segments["segments"] = updated
         save_json.save_viral_segments(viral_segments, project_folder=project_folder)
 
         count = sum(1 for s in updated if s.get("tiktok_caption"))
         gallery = library.generate_project_gallery(proj_name)
-        return f"{count}/{len(updated)} captions générées.", gallery
+        return f"{count}/{len(updated)} captions générées et validées.", gallery
 
     except Exception as e:
         return f"Erreur : {e}", None
@@ -282,7 +286,7 @@ SETTINGS_KEYS = [
     "focus_active_speaker",
     "active_speaker_mar", "active_speaker_score_diff", "include_motion",
     "active_speaker_motion_threshold", "active_speaker_motion_sensitivity", "active_speaker_decay",
-    "content_type", "enable_scoring", "min_score",
+    "content_type", "enable_scoring", "min_score", "enable_validation",
     "use_custom_subs", "subtitle_preset",
     "font_name", "font_size", "font_color", "highlight_color",
     "outline_color", "outline_thickness", "shadow_color", "shadow_size",
@@ -317,7 +321,7 @@ def load_settings():
 
 def run_viral_cutter(input_source, project_name, url, video_file, segments, viral, themes, min_duration, max_duration, model, ai_backend, api_key, ai_model_name, chunk_size, workflow, face_model, face_mode, face_detect_interval, no_face_mode,
                      face_filter_thresh, face_two_thresh, face_conf_thresh, face_dead_zone, zoom_out_factor, focus_active_speaker, active_speaker_mar, active_speaker_score_diff, include_motion, active_speaker_motion_threshold, active_speaker_motion_sensitivity, active_speaker_decay,
-                     content_type, enable_scoring, min_score,
+                     content_type, enable_scoring, min_score, enable_validation,
                      use_custom_subs, font_name, font_size, font_color, highlight_color, outline_color, outline_thickness, shadow_color, shadow_size, is_bold, is_italic, is_uppercase, vertical_pos, alignment,
                      h_size, w_block, gap, mode, under, strike, border_s, remove_punc, video_quality, use_youtube_subs, translate_target,
                      add_music, music_dir, music_file, music_volume,
@@ -424,6 +428,8 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
     if enable_scoring:
         cmd.append("--enable-scoring")
         if min_score is not None: cmd.extend(["--min-score", str(int(min_score))])
+    if enable_validation:
+        cmd.append("--enable-validation")
 
     # Music
     if add_music:
@@ -716,6 +722,11 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                             inputs=enable_scoring_input,
                             outputs=[min_score_row, min_score_input]
                         )
+                        enable_validation_input = gr.Checkbox(
+                            label=i18n("Enable Validation Pass"),
+                            value=True,
+                            info=i18n("LLM reviews each segment: hook strength, standalone test, narrative arc, viral value. Rejects weak segments.")
+                        )
 
                     model_input = gr.Dropdown(["tiny", "small", "medium", "large", "large-v1", "large-v2", "large-v3", "turbo", "large-v3-turbo", "distil-large-v2", "distil-medium.en", "distil-small.en", "distil-large-v3"], label=i18n("Whisper Model"), value="large-v3-turbo")
                     with gr.Row():
@@ -941,7 +952,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  workflow_input, face_model_input, face_mode_input, face_detect_interval_input, no_face_mode_input,
                  face_filter_thresh_input, face_two_thresh_input, face_conf_thresh_input, face_dead_zone_input, zoom_out_factor_input, focus_active_speaker_input,
                  active_speaker_mar_input, active_speaker_score_diff_input, include_motion_input, active_speaker_motion_threshold_input, active_speaker_motion_sensitivity_input, active_speaker_decay_input,
-                 content_type_input, enable_scoring_input, min_score_input,
+                 content_type_input, enable_scoring_input, min_score_input, enable_validation_input,
                  use_custom_subs,
                  # Expanded Manual Inputs mapping
                  font_name_input, font_size_input, font_color_input, highlight_color_input,
@@ -968,7 +979,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  focus_active_speaker_input,
                  active_speaker_mar_input, active_speaker_score_diff_input, include_motion_input,
                  active_speaker_motion_threshold_input, active_speaker_motion_sensitivity_input, active_speaker_decay_input,
-                 content_type_input, enable_scoring_input, min_score_input,
+                 content_type_input, enable_scoring_input, min_score_input, enable_validation_input,
                  use_custom_subs, preset_input,
                  font_name_input, font_size_input, font_color_input, highlight_color_input,
                  outline_color_input, outline_thickness_input, shadow_color_input, shadow_size_input,

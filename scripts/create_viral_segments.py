@@ -444,6 +444,174 @@ def score_segments(segments: list[dict], ai_mode: str, api_key: str | None = Non
         return segments
 
 
+def _call_ai(prompt: str, ai_mode: str, api_key: str | None = None, model_name: str | None = None) -> str | None:
+    """Helper centralisé pour appeler le LLM selon le mode."""
+    if ai_mode == "pleiade":
+        return call_pleiade(prompt, model_name=model_name)
+    elif ai_mode == "gemini":
+        return call_gemini(prompt, api_key, model_name=model_name or "gemini-2.5-flash-lite-preview-09-2025")
+    elif ai_mode == "g4f":
+        return call_g4f(prompt, model_name=model_name or "gpt-4o-mini")
+    return None
+
+
+def _validate_one_segment(seg: dict, transcript_text: str, validation_template: str, ai_mode: str, api_key: str | None, model_name: str | None) -> dict:
+    """Valide UN segment via le LLM. Retourne {"decision": "keep"/"reject", "reason": "..."}."""
+    excerpt = _extract_excerpt(transcript_text, seg.get("start_time", 0), seg.get("end_time"), max_chars=1200)
+    segment_data = {
+        "title": seg.get("title", ""),
+        "hook": seg.get("hook", ""),
+        "reasoning": seg.get("reasoning", ""),
+        "transcript_excerpt": excerpt
+    }
+    prompt = validation_template.replace("{segment_json}", json.dumps(segment_data, ensure_ascii=False))
+
+    response = _call_ai(prompt, ai_mode, api_key, model_name)
+    if not response:
+        return {"decision": "keep", "reason": "AI non disponible"}
+
+    try:
+        data = clean_json_response_simple(response)
+        return {"decision": data.get("decision", "keep"), "reason": data.get("reason", "")}
+    except Exception:
+        return {"decision": "keep", "reason": "Erreur parsing, segment conservé"}
+
+
+def _find_replacement_segment(
+    rejected_seg: dict, reject_reason: str, validated_segments: list[dict],
+    transcript_text: str, transcript_segments: list[dict],
+    min_duration: int, max_duration: int,
+    replacement_template: str, json_template: str,
+    ai_mode: str, api_key: str | None, model_name: str | None
+) -> dict | None:
+    """Demande au LLM de trouver un segment de remplacement. Retourne le segment aligné ou None."""
+    existing_info = json.dumps([
+        {"title": s.get("title", ""), "start": s.get("start_time", 0), "end": s.get("end_time", 0)}
+        for s in validated_segments
+    ], ensure_ascii=False)
+
+    prompt = replacement_template\
+        .replace("{rejected_title}", rejected_seg.get("title", ""))\
+        .replace("{reject_reason}", reject_reason)\
+        .replace("{rejected_start}", str(int(rejected_seg.get("start_time", 0))))\
+        .replace("{rejected_end}", str(int(rejected_seg.get("end_time", 0))))\
+        .replace("{existing_segments}", existing_info)\
+        .replace("{min_duration}", str(min_duration))\
+        .replace("{max_duration}", str(max_duration))\
+        .replace("{transcript_chunk}", transcript_text)\
+        .replace("{json_template}", json_template)
+
+    response = _call_ai(prompt, ai_mode, api_key, model_name)
+    if not response:
+        return None
+
+    try:
+        data = clean_json_response(response)
+        raw_segments = data.get("segments", [])
+        if not raw_segments:
+            return None
+
+        result = process_segments(raw_segments[:1], transcript_segments, min_duration, max_duration, output_count=1)
+        new_segments = result.get("segments", [])
+        return new_segments[0] if new_segments else None
+    except Exception as e:
+        logger.warning(f"[VALIDATION] Erreur remplacement: {e}")
+        return None
+
+
+MAX_VALIDATION_RETRIES = 5  # Max tentatives de remplacement par segment rejeté
+
+
+def validate_segments(
+    segments: list[dict], transcript_text: str, transcript_segments: list[dict],
+    min_duration: int, max_duration: int, json_template: str,
+    ai_mode: str, api_key: str | None = None, model_name: str | None = None
+) -> list[dict]:
+    """Valide chaque segment un par un. Si rejeté, cherche un remplacement (max MAX_VALIDATION_RETRIES fois)."""
+    if not segments:
+        return segments
+
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    validation_path = os.path.join(base_dir, "prompts", "validation.txt")
+    replacement_path = os.path.join(base_dir, "prompts", "replacement.txt")
+
+    if not os.path.exists(validation_path):
+        logger.warning("[WARN] prompts/validation.txt non trouvé, validation ignorée.")
+        return segments
+
+    with open(validation_path, 'r', encoding='utf-8') as f:
+        validation_template = f.read()
+
+    replacement_template = ""
+    if os.path.exists(replacement_path):
+        with open(replacement_path, 'r', encoding='utf-8') as f:
+            replacement_template = f.read()
+
+    validated = []
+    total_rejected = 0
+    total_replaced = 0
+
+    for i, seg in enumerate(segments):
+        candidate = seg
+        retries = 0
+        accepted = False
+
+        while retries <= MAX_VALIDATION_RETRIES:
+            label = f"[VALIDATION {i+1}/{len(segments)}]"
+            if retries > 0:
+                label += f" (remplacement #{retries})"
+
+            logger.info(f"{label} Test: '{candidate.get('title', '')}'")
+            result = _validate_one_segment(candidate, transcript_text, validation_template, ai_mode, api_key, model_name)
+
+            if result["decision"] == "keep":
+                logger.info(f"{label} KEEP — {result['reason']}")
+                validated.append(candidate)
+                accepted = True
+                break
+
+            # Rejeté
+            logger.info(f"{label} REJECT — {result['reason']}")
+            total_rejected += 1
+            retries += 1
+
+            if retries > MAX_VALIDATION_RETRIES:
+                logger.info(f"{label} Max tentatives atteint, segment abandonné.")
+                break
+
+            # Chercher un remplacement
+            if not replacement_template:
+                logger.info(f"{label} Pas de prompt de remplacement, segment abandonné.")
+                break
+
+            logger.info(f"{label} Recherche d'un remplacement...")
+            new_seg = _find_replacement_segment(
+                candidate, result["reason"], validated,
+                transcript_text, transcript_segments,
+                min_duration, max_duration,
+                replacement_template, json_template,
+                ai_mode, api_key, model_name
+            )
+
+            if not new_seg:
+                logger.info(f"{label} Aucun remplacement trouvé, segment abandonné.")
+                break
+
+            # Vérifier que le remplacement n'est pas le même segment
+            old_start = int(candidate.get("start_time", 0))
+            new_start = int(new_seg.get("start_time", -1))
+            if abs(old_start - new_start) < 10:
+                logger.info(f"{label} Remplacement trop similaire (même timestamps), segment abandonné.")
+                break
+
+            total_replaced += 1
+            candidate = new_seg
+
+    logger.info(f"[INFO] Validation terminée: {len(validated)}/{len(segments)} segments retenus "
+                f"({total_rejected} rejetés, {total_replaced} remplacements tentés)")
+    return validated
+
+
 def _extract_excerpt(transcript_text: str, start_time: float, end_time: float | None = None, max_chars: int = 800) -> str:
     """Extrait le texte de la transcription entre start_time et end_time (ou max_chars si pas d'end_time)."""
     def find_pos(t: float) -> int:
@@ -553,6 +721,94 @@ def generate_tiktok_captions(
     except Exception as e:
         logger.warning(f"[WARN] Échec de la génération des captions TikTok: {e}. Segments conservés sans caption.")
         return segments
+
+
+MAX_CAPTION_RETRIES = 5  # Max tentatives de correction par caption rejetée
+
+
+def validate_captions(
+    segments: list[dict], transcript_text: str,
+    ai_mode: str, api_key: str | None = None, model_name: str | None = None
+) -> list[dict]:
+    """Valide chaque caption TikTok une par une. Si rejetée, utilise la version corrigée par le LLM (max MAX_CAPTION_RETRIES fois)."""
+    if not segments:
+        return segments
+
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    validation_path = os.path.join(base_dir, "prompts", "caption_validation.txt")
+
+    if not os.path.exists(validation_path):
+        logger.warning("[WARN] prompts/caption_validation.txt non trouvé, validation captions ignorée.")
+        return segments
+
+    with open(validation_path, 'r', encoding='utf-8') as f:
+        validation_template = f.read()
+
+    total_fixed = 0
+
+    for i, seg in enumerate(segments):
+        caption = seg.get("tiktok_caption", "")
+        if not caption:
+            continue
+
+        retries = 0
+        while retries <= MAX_CAPTION_RETRIES:
+            label = f"[CAPTION VALIDATION {i+1}/{len(segments)}]"
+            if retries > 0:
+                label += f" (correction #{retries})"
+
+            excerpt = _extract_excerpt(transcript_text, seg.get("start_time", 0), seg.get("end_time"), max_chars=800)
+            caption_data = {"caption": caption, "transcript_excerpt": excerpt}
+            prompt = validation_template.replace("{caption_json}", json.dumps(caption_data, ensure_ascii=False))
+
+            response = _call_ai(prompt, ai_mode, api_key, model_name)
+            if not response:
+                break
+
+            try:
+                data = clean_json_response_simple(response)
+            except Exception:
+                break
+
+            decision = data.get("decision", "keep")
+            reason = data.get("reason", "")
+
+            if decision == "keep":
+                logger.info(f"{label} KEEP — {reason}")
+                # Utiliser fixed_caption si fourni (peut être nettoyé)
+                fixed = data.get("fixed_caption", "")
+                if fixed and fixed != caption:
+                    seg["tiktok_caption"] = fixed
+                break
+
+            # Rejetée
+            logger.info(f"{label} REJECT — {reason}")
+            fixed = data.get("fixed_caption", "")
+            retries += 1
+
+            if fixed and fixed != caption:
+                total_fixed += 1
+                caption = fixed
+                seg["tiktok_caption"] = fixed
+                # Re-valider la version corrigée au prochain tour de boucle
+            else:
+                logger.info(f"{label} Pas de correction proposée, caption conservée telle quelle.")
+                break
+
+            if retries > MAX_CAPTION_RETRIES:
+                logger.info(f"{label} Max corrections atteint, caption conservée.")
+                break
+
+        # Filet de sécurité hashtags
+        final_caption = seg.get("tiktok_caption", "")
+        if final_caption and "#fyp" not in final_caption.lower():
+            final_caption = final_caption.rstrip() + " #fyp"
+        if final_caption and "#pourtoi" not in final_caption.lower():
+            final_caption = final_caption.rstrip() + " #pourtoi"
+        seg["tiktok_caption"] = final_caption
+
+    logger.info(f"[INFO] Validation captions terminée: {total_fixed} captions corrigées sur {len(segments)}")
+    return segments
 
 
 def call_pleiade(prompt: str, model_name: str | None = None) -> str:
@@ -843,7 +1099,7 @@ def process_segments(raw_segments: list[dict], transcript_segments: list[dict], 
     return final_result
 
 
-def create(num_segments: int | None, viral_mode: bool, themes: str | None, tempo_minimo: int, tempo_maximo: int, ai_mode: str = "manual", api_key: str | None = None, project_folder: str = "tmp", chunk_size_arg: int | str | None = None, model_name_arg: str | None = None, content_type: list[str] | None = None, enable_scoring: bool = True, min_score: int = 70) -> dict:
+def create(num_segments: int | None, viral_mode: bool, themes: str | None, tempo_minimo: int, tempo_maximo: int, ai_mode: str = "manual", api_key: str | None = None, project_folder: str = "tmp", chunk_size_arg: int | str | None = None, model_name_arg: str | None = None, content_type: list[str] | None = None, enable_scoring: bool = True, min_score: int = 70, enable_validation: bool = True) -> dict:
     quantidade_de_virals = num_segments if num_segments is not None else 3
 
     # 1. Load Transcript
@@ -1161,6 +1417,14 @@ Rules: integers only for times. Duration (end - start) must be ''' + str(tempo_m
         tempo_maximo,
         output_count=quantidade_de_virals
     )
+
+    # --- Passe de validation (optionnelle) — valide segment par segment, remplace les rejetés ---
+    if enable_validation and ai_mode in ("pleiade", "gemini", "g4f") and result.get("segments"):
+        result["segments"] = validate_segments(
+            result["segments"], content, transcript_segments,
+            tempo_minimo, tempo_maximo, json_template,
+            ai_mode, api_key, model_name
+        )
 
     # --- Passe de scoring (optionnelle) ---
     if enable_scoring and ai_mode in ("pleiade", "gemini", "g4f") and result.get("segments"):

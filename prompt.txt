@@ -31,7 +31,13 @@ Transcript: "Voilà c'était la vidéo (1700s) j'espère que ça vous a plu (170
 - start_time_ref / end_time_ref = integers (the (XXs) tag number, no unit).
 - subtitle_language: always "fr" (French subtitles for French audience).
 - Speaker names: only use names that directly address a participant. Never use comparison names ("tu ressembles à X").
-- Multi-part: if story > {max_duration}s → split into consecutive parts. Title: "Base — Partie 1/N". Set part_number and total_parts.
+- **MULTI-PART SYSTEM (PREFER SHORT PUNCHY PARTS)**:
+  → If a story exceeds {max_duration}s → you MUST split into consecutive parts.
+  → But also: even if a story FITS in one long segment, **PREFER splitting** into 2-3 shorter parts (40-70s each) over one 2-5 minute block. Short parts with cliffhangers get WAY higher retention on TikTok than long videos.
+  → Each part must have its OWN hook and cliffhanger ending (except the last part which gets the payoff).
+  → Title: "Base — Partie 1/N", "Base — Partie 2/N", etc. Set part_number and total_parts.
+  → Parts MUST be consecutive: end of part K = start of part K+1.
+  → For standalone segments: part_number=1, total_parts=1.
 - Output title, hook, and reasoning in the SAME LANGUAGE as the transcript.
 
 ### YOUR TASK
