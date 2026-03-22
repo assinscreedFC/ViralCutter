@@ -1,6 +1,7 @@
 """Filler word removal: detect and remove filler words from video clips."""
 from __future__ import annotations
 
+import json
 import logging
 import os
 
@@ -36,7 +37,7 @@ def detect_fillers(
         for lang_fillers in FILLER_WORDS.values():
             fillers.update(lang_fillers)
     else:
-        fillers = FILLER_WORDS.get(language, set())
+        fillers = set(FILLER_WORDS.get(language, set()))
 
     if custom_fillers:
         fillers.update(custom_fillers)
@@ -112,8 +113,6 @@ def update_subtitle_json(
         fillers: List of removed fillers with start/end.
         output_path: Output JSON path.
     """
-    import json
-
     if not os.path.exists(json_path):
         return
 

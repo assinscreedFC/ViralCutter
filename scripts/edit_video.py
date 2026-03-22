@@ -38,12 +38,12 @@ def apply_zoom_effect(frame: np.ndarray, current_time: float, zoom_cues: list,
         # Ease-in-out: ramp up 0-30%, hold 30-70%, ramp down 70-100%
         if t < 0.3:
             easing = t / 0.3  # 0 -> 1
-            easing = easing * easing * (3 - 2 * easing)  # smoothstep
+            easing = max(0.0, min(1.0, easing * easing * (3 - 2 * easing)))  # smoothstep
         elif t < 0.7:
             easing = 1.0
         else:
             easing = (1.0 - t) / 0.3  # 1 -> 0
-            easing = easing * easing * (3 - 2 * easing)
+            easing = max(0.0, min(1.0, easing * easing * (3 - 2 * easing)))
 
         zoom_factor = 1.0 + (intensity - 1.0) * easing
         if zoom_factor <= 1.0:
@@ -56,7 +56,7 @@ def apply_zoom_effect(frame: np.ndarray, current_time: float, zoom_cues: list,
         x1 = (w - crop_w) // 2
         y1 = (h - crop_h) // 2
         cropped = frame[y1:y1 + crop_h, x1:x1 + crop_w]
-        return cv2.resize(cropped, (frame_width, frame_height), interpolation=cv2.INTER_LINEAR)
+        return cv2.resize(cropped, (w, h), interpolation=cv2.INTER_LINEAR)
 
     return frame
 

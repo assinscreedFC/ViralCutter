@@ -41,7 +41,10 @@ def apply_lut(
         lut_dir = DEFAULT_LUT_DIR
 
     lut_filename = LUT_PRESETS.get(lut_name, lut_name)
-    lut_path = os.path.join(lut_dir, lut_filename)
+    lut_path = os.path.realpath(os.path.join(lut_dir, lut_filename))
+    if not lut_path.startswith(os.path.realpath(lut_dir)):
+        logger.error("LUT path traversal attempt: %s", lut_name)
+        return False
 
     if not os.path.isfile(lut_path):
         logger.warning("LUT file not found: %s", lut_path)

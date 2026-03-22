@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import subprocess
 import tempfile
 from typing import Optional
@@ -58,6 +59,14 @@ def add_progress_bar(
         bar_position: "top" (y=0) or "bottom" (y=ih-height).
         bar_color: Any ffmpeg color name or hex (e.g. "white", "0xFF0000").
     """
+    _VALID_COLOR = re.compile(r'^[a-zA-Z0-9#@.]+$')
+    if not _VALID_COLOR.match(bar_color):
+        logger.error("Invalid bar_color: %s", bar_color)
+        return False
+    if bar_position not in ("top", "bottom"):
+        logger.error("Invalid bar_position: %s", bar_position)
+        return False
+
     duration = _get_duration(input_path)
     if duration <= 0:
         logger.error("Cannot add progress bar: invalid duration")

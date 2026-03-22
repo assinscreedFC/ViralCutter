@@ -10,6 +10,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 HAARCASCADE_PATH = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+_face_cascade = cv2.CascadeClassifier(HAARCASCADE_PATH)
 
 
 def _score_sharpness(gray: np.ndarray) -> float:
@@ -19,7 +20,7 @@ def _score_sharpness(gray: np.ndarray) -> float:
 
 def _score_faces(gray: np.ndarray) -> tuple[float, list]:
     """Return (score, faces). Score is capped at 1.0 for >=1 face."""
-    cascade = cv2.CascadeClassifier(HAARCASCADE_PATH)
+    cascade = _face_cascade
     faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
     faces = list(faces) if len(faces) > 0 else []
     return (min(len(faces), 1.0), faces)
@@ -64,19 +65,20 @@ def extract_best_frame(video_path: str, sample_count: int = 20) -> tuple[np.ndar
     sharpness_values: list[float] = []
     candidates: list[tuple[np.ndarray, float, float, float, list]] = []
 
-    for idx in indices:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
-        ok, frame = cap.read()
-        if not ok:
-            continue
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        sharpness = _score_sharpness(gray)
-        face_score, faces = _score_faces(gray)
-        ts = float(idx) / fps
-        sharpness_values.append(sharpness)
-        candidates.append((frame, ts, face_score, sharpness, faces))
-
-    cap.release()
+    try:
+        for idx in indices:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
+            ok, frame = cap.read()
+            if not ok:
+                continue
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            sharpness = _score_sharpness(gray)
+            face_score, faces = _score_faces(gray)
+            ts = float(idx) / fps
+            sharpness_values.append(sharpness)
+            candidates.append((frame, ts, face_score, sharpness, faces))
+    finally:
+        cap.release()
 
     if not candidates:
         raise RuntimeError(f"No readable frames in {video_path}")

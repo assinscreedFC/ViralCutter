@@ -15,6 +15,8 @@ _ATEMPO_MAX = 2.0
 
 def _build_atempo_chain(factor: float) -> str:
     """Build chained atempo filters for factors outside 0.5-2.0 range."""
+    if factor <= 0:
+        raise ValueError(f"atempo factor must be positive, got {factor}")
     filters: list[str] = []
     remaining = factor
     while remaining > _ATEMPO_MAX + 0.001:

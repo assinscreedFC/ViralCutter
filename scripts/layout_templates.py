@@ -67,7 +67,14 @@ def apply_lower_third(
         logger.error("Input file not found: %s", input_path)
         return False
 
-    escaped_text = text.replace("'", r"\'").replace(":", r"\:")
+    escaped_text = (
+        text.replace("\\", "\\\\")
+            .replace("'", r"\'")
+            .replace(":", r"\:")
+            .replace("%", r"\%")
+            .replace("[", r"\[")
+            .replace("]", r"\]")
+    )
     end_time = display_start + display_duration
 
     drawtext = (
