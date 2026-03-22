@@ -299,6 +299,7 @@ SETTINGS_KEYS = [
     "smart_trim", "trim_pad_start", "trim_pad_end", "scene_detection",
     "validate_clips", "hook_detection", "min_hook_score", "blur_detection", "max_blur_ratio",
     "pacing_analysis", "composite_scoring",
+    "remove_fillers", "auto_thumbnail", "auto_zoom", "speed_ramp", "speed_up_factor",
     "remove_silence", "silence_threshold", "silence_min_duration", "silence_max_keep",
     "enable_parts", "target_part_duration",
     "post_youtube", "post_tiktok", "youtube_privacy", "post_interval_minutes", "post_first_time",
@@ -334,6 +335,7 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
                      smart_trim, trim_pad_start, trim_pad_end, scene_detection,
                      validate_clips, hook_detection, min_hook_score, blur_detection, max_blur_ratio,
                      pacing_analysis, composite_scoring,
+                     remove_fillers, auto_thumbnail, auto_zoom, speed_ramp, speed_up_factor,
                      remove_silence, silence_threshold, silence_min_duration, silence_max_keep,
                      enable_parts, target_part_duration,
                      post_youtube, post_tiktok, youtube_privacy, post_interval_minutes, post_first_time):
@@ -481,6 +483,17 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
         cmd.append("--pacing-analysis")
     if composite_scoring:
         cmd.append("--composite-scoring")
+
+    # Phase 3 features
+    if remove_fillers:
+        cmd.append("--remove-fillers")
+    if auto_thumbnail:
+        cmd.append("--auto-thumbnail")
+    if auto_zoom:
+        cmd.append("--auto-zoom")
+    if speed_ramp:
+        cmd.append("--speed-ramp")
+        if speed_up_factor is not None: cmd.extend(["--speed-up-factor", str(speed_up_factor)])
 
     # Jump Cuts (Silence Removal)
     if remove_silence:
@@ -990,6 +1003,30 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                      info=i18n("Aggregate all quality signals into a single 0-100 score")
                  )
 
+             with gr.Accordion(i18n("Content Enhancement"), open=False):
+                 remove_fillers_input = gr.Checkbox(
+                     label=i18n("Remove Filler Words"), value=False,
+                     info=i18n("Detect and remove filler words (um, uh, like, euh, genre...)")
+                 )
+                 auto_thumbnail_input = gr.Checkbox(
+                     label=i18n("Auto Thumbnail"), value=False,
+                     info=i18n("Generate best-frame thumbnails for each clip")
+                 )
+                 auto_zoom_input = gr.Checkbox(
+                     label=i18n("Auto Zoom (Dynamic)"), value=False,
+                     info=i18n("Apply dynamic zoom effects on punchlines and key moments")
+                 )
+                 speed_ramp_input = gr.Checkbox(
+                     label=i18n("Speed Ramp"), value=False,
+                     info=i18n("Speed up dead moments, slow down highlights")
+                 )
+                 with gr.Row(visible=False) as speed_options_row:
+                     speed_up_factor_input = gr.Slider(
+                         label=i18n("Speed Up Factor"), minimum=1.1, maximum=3.0, value=1.5, step=0.1,
+                         info=i18n("How much to speed up dead moments (1.5 = 50% faster)")
+                     )
+                 speed_ramp_input.change(lambda x: gr.update(visible=x), inputs=speed_ramp_input, outputs=speed_options_row)
+
              with gr.Accordion(i18n("Jump Cuts (Silence Removal)"), open=False):
                  remove_silence_input = gr.Checkbox(
                      label=i18n("Remove Silences"), value=False,
@@ -1105,6 +1142,8 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  smart_trim_input, trim_pad_start_input, trim_pad_end_input, scene_detection_input,
                  validate_clips_input, hook_detection_input, min_hook_score_input, blur_detection_input, max_blur_ratio_input,
                  pacing_analysis_input, composite_scoring_input,
+                 # Content Enhancement (Phase 3)
+                 remove_fillers_input, auto_thumbnail_input, auto_zoom_input, speed_ramp_input, speed_up_factor_input,
                  # Jump Cuts (Silence Removal)
                  remove_silence_input, silence_threshold_input, silence_min_duration_input, silence_max_keep_input,
                  # Parts Mode
@@ -1135,6 +1174,8 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  smart_trim_input, trim_pad_start_input, trim_pad_end_input, scene_detection_input,
                  validate_clips_input, hook_detection_input, min_hook_score_input, blur_detection_input, max_blur_ratio_input,
                  pacing_analysis_input, composite_scoring_input,
+                 # Content Enhancement (Phase 3)
+                 remove_fillers_input, auto_thumbnail_input, auto_zoom_input, speed_ramp_input, speed_up_factor_input,
                  remove_silence_input, silence_threshold_input, silence_min_duration_input, silence_max_keep_input,
                  # Parts Mode
                  enable_parts_input, target_part_duration_input,

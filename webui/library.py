@@ -353,3 +353,34 @@ def generate_project_gallery(project_path_name: str | None, is_full_path: bool =
 
     except Exception as e:
         return i18n("Error loading gallery: {}").format(e)
+
+
+def generate_preview_clip(project_folder: str, segment_index: int, duration: float = 5.0) -> str:
+    """Generate a short preview clip for a segment."""
+    import glob as glob_mod
+    import subprocess
+
+    cuts_folder = os.path.join(project_folder, "cuts")
+    video_files = sorted(glob_mod.glob(os.path.join(cuts_folder, "*_original_scale.mp4")))
+
+    if segment_index >= len(video_files):
+        return ""
+
+    input_path = video_files[segment_index]
+    preview_path = input_path.replace("_original_scale.mp4", "_preview.mp4")
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-loglevel", "error", "-hide_banner",
+        "-ss", "0", "-i", input_path,
+        "-t", str(duration),
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+        "-c:a", "aac", "-b:a", "96k",
+        preview_path,
+    ]
+
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        return preview_path
+    except subprocess.CalledProcessError:
+        return ""

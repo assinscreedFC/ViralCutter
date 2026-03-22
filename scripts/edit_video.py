@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import cv2
 import numpy as np
@@ -17,6 +18,47 @@ try:
 except ImportError:
     INSIGHTFACE_AVAILABLE = False
     logger.warning("InsightFace not found or error importing. Install with: pip install insightface onnxruntime-gpu")
+
+
+def apply_zoom_effect(frame: np.ndarray, current_time: float, zoom_cues: list,
+                      frame_width: int = 1080, frame_height: int = 1920) -> np.ndarray:
+    """Apply smooth zoom effect based on LLM-generated zoom_cues."""
+    for cue in zoom_cues:
+        ts = cue.get("timestamp", 0)
+        duration = cue.get("duration", 1.0)
+        intensity = cue.get("intensity", 1.0)
+        if duration <= 0 or intensity <= 1.0:
+            continue
+        if not (ts <= current_time <= ts + duration):
+            continue
+
+        # Normalized progress [0, 1]
+        t = (current_time - ts) / duration
+
+        # Ease-in-out: ramp up 0-30%, hold 30-70%, ramp down 70-100%
+        if t < 0.3:
+            easing = t / 0.3  # 0 -> 1
+            easing = easing * easing * (3 - 2 * easing)  # smoothstep
+        elif t < 0.7:
+            easing = 1.0
+        else:
+            easing = (1.0 - t) / 0.3  # 1 -> 0
+            easing = easing * easing * (3 - 2 * easing)
+
+        zoom_factor = 1.0 + (intensity - 1.0) * easing
+        if zoom_factor <= 1.0:
+            return frame
+
+        # Center crop by zoom_factor then resize back
+        h, w = frame.shape[:2]
+        crop_w = int(w / zoom_factor)
+        crop_h = int(h / zoom_factor)
+        x1 = (w - crop_w) // 2
+        y1 = (h - crop_h) // 2
+        cropped = frame[y1:y1 + crop_h, x1:x1 + crop_w]
+        return cv2.resize(cropped, (frame_width, frame_height), interpolation=cv2.INTER_LINEAR)
+
+    return frame
 
 
 # Global cache for encoder
@@ -288,6 +330,15 @@ def generate_short_mediapipe(input_file: str, output_file: str, index: int, face
         transition_duration = int(fps)
         transition_frames = []
 
+        # Load zoom_cues from viral_segments.txt
+        segments_path = os.path.join(project_folder, "viral_segments.txt")
+        zoom_cues = []
+        if os.path.exists(segments_path):
+            with open(segments_path, "r") as f:
+                vs = json.load(f)
+            if "segments" in vs and index < len(vs["segments"]):
+                zoom_cues = vs["segments"][index].get("zoom_cues", [])
+
         for frame_index in range(total_frames):
             ret, frame = cap.read()
             if not ret or frame is None:
@@ -390,12 +441,16 @@ def generate_short_mediapipe(input_file: str, output_file: str, index: int, face
                          result = crop_center_zoom(frame)
                      else:
                          result = resize_with_padding(frame)
-            
+
+            if zoom_cues:
+                current_time = frame_index / fps
+                result = apply_zoom_effect(result, current_time, zoom_cues)
+
             out.write(result)
 
         cap.release()
         out.release()
-        
+
         finalize_video(input_file, output_file, index, fps, project_folder, final_folder)
 
     except Exception as e:
@@ -567,8 +622,17 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
     # Map of "Face ID" to activity score?
     # Since we don't have ID tracker, we blindly assign score to faces based on proximity to previous frame
     # A list of dictionaries: [{'center': (x,y), 'activity': score}, ...]
-    faces_activity_state = [] 
-    
+    faces_activity_state = []
+
+    # Load zoom_cues from viral_segments.txt
+    segments_path = os.path.join(project_folder, "viral_segments.txt")
+    zoom_cues = []
+    if os.path.exists(segments_path):
+        with open(segments_path, "r") as f:
+            vs = json.load(f)
+        if "segments" in vs and index < len(vs["segments"]):
+            zoom_cues = vs["segments"][index].get("zoom_cues", [])
+
     for frame_index in range(total_frames):
         if buffered_frame is not None:
              frame = buffered_frame
@@ -1087,11 +1151,15 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
             pass  # coords logging is best-effort
         coordinate_log.append(coords_entry)
 
+        if zoom_cues:
+            current_time = frame_index / fps
+            result = apply_zoom_effect(result, current_time, zoom_cues)
+
         out.write(result)
 
     cap.release()
     out.release()
-    
+
     # Compress timeline into segments
     # [(start_time, end_time, mode), ...]
     compressed_timeline = []
