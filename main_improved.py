@@ -196,6 +196,12 @@ def main() -> None:
     parser.add_argument("--emoji-overlay", action="store_true", help="Add emoji overlays at key moments")
     parser.add_argument("--color-grade", type=str, default=None, help="Color grading LUT preset (cinematic, vintage, warm, cool, high_contrast)")
     parser.add_argument("--grade-intensity", type=float, default=0.7, help="Color grading intensity 0-1 (default: 0.7)")
+    # --- Advanced AI (Phase 5) ---
+    parser.add_argument("--engagement-prediction", action="store_true", help="Predict engagement score using ML model")
+    parser.add_argument("--engagement-model", type=str, default=None, help="Path to trained XGBoost model file")
+    parser.add_argument("--dubbing", action="store_true", help="AI dubbing: translate and voice-over in target language")
+    parser.add_argument("--dubbing-language", type=str, default="en", help="Target language for dubbing (default: en)")
+    parser.add_argument("--dubbing-original-volume", type=float, default=0.2, help="Original audio volume during dubbing (0-1, default: 0.2)")
 
     parser.add_argument("--enable-parts", action="store_true", help="Enable parts mode: long passages auto-split into multi-part series")
     parser.add_argument("--target-part-duration", type=int, default=55, help="Target duration for each part after splitting (seconds, default: 55)")
@@ -869,6 +875,13 @@ def main() -> None:
                         seg["composite_quality_score"] = composite
                         logger.info(f"  {filename}: composite_score={composite}")
 
+                    # A10: Engagement prediction
+                    if args.engagement_prediction:
+                        from scripts.engagement_predictor import predict_from_metadata
+                        engagement = predict_from_metadata(seg, model_path=args.engagement_model)
+                        seg["engagement_score"] = engagement
+                        logger.info(f"  {filename}: engagement_score={engagement}")
+
                 # Save updated metadata
                 segments_path = os.path.join(project_folder, "viral_segments.txt")
                 with open(segments_path, "w", encoding="utf-8") as f:
@@ -1108,9 +1121,35 @@ def main() -> None:
                 if os.path.exists(temp_out):
                     os.remove(temp_out)
 
+        # 10. AI Dubbing
+        if args.dubbing and workflow_choice not in ("3",):
+            import glob as glob_mod
+            from scripts.ai_dubbing import dub_segment
+
+            # Use burned_sub folder if available, else cuts
+            dub_folder = os.path.join(project_folder, "burned_sub")
+            if not os.path.isdir(dub_folder):
+                dub_folder = os.path.join(project_folder, "cuts")
+            video_files = sorted(glob_mod.glob(os.path.join(dub_folder, "*.mp4")))
+
+            # Get transcript text from viral_segments
+            segments_path = os.path.join(project_folder, "viral_segments.txt")
+            segment_texts = []
+            if os.path.exists(segments_path):
+                with open(segments_path, "r", encoding="utf-8") as f:
+                    vs = json.load(f)
+                segment_texts = [s.get("description", s.get("title", "")) for s in vs.get("segments", [])]
+
+            for idx, video_path in enumerate(video_files):
+                text = segment_texts[idx] if idx < len(segment_texts) else ""
+                if text:
+                    dubbed_path = video_path.rsplit(".", 1)[0] + f"_dubbed_{args.dubbing_language}.mp4"
+                    if dub_segment(video_path, text, args.dubbing_language, dubbed_path, original_volume=args.dubbing_original_volume):
+                        logger.info(f"Dubbed: {os.path.basename(dubbed_path)}")
+
         # Organização Final (Opcional, pois agora já está tudo em project_folder)
         # organize_output.organize(project_folder=project_folder)
-        
+
         # --- Save Processing Configuration ---
         try:
             # Determine AI Model used

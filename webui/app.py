@@ -303,6 +303,7 @@ SETTINGS_KEYS = [
     "progress_bar", "bar_color", "bar_position", "ab_variants", "num_variants",
     "layout_template", "auto_broll", "transitions", "output_resolution",
     "emoji_overlay", "color_grade", "grade_intensity",
+    "engagement_prediction", "dubbing", "dubbing_language", "dubbing_original_volume",
     "remove_silence", "silence_threshold", "silence_min_duration", "silence_max_keep",
     "enable_parts", "target_part_duration",
     "post_youtube", "post_tiktok", "youtube_privacy", "post_interval_minutes", "post_first_time",
@@ -342,6 +343,7 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
                      progress_bar, bar_color, bar_position, ab_variants, num_variants,
                      layout_template, auto_broll, transitions, output_resolution,
                      emoji_overlay, color_grade, grade_intensity,
+                     engagement_prediction, dubbing, dubbing_language, dubbing_original_volume,
                      remove_silence, silence_threshold, silence_min_duration, silence_max_keep,
                      enable_parts, target_part_duration,
                      post_youtube, post_tiktok, youtube_privacy, post_interval_minutes, post_first_time):
@@ -522,6 +524,14 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
     if color_grade:
         cmd.extend(["--color-grade", str(color_grade)])
         if grade_intensity is not None: cmd.extend(["--grade-intensity", str(grade_intensity)])
+
+    # Phase 5 advanced AI
+    if engagement_prediction:
+        cmd.append("--engagement-prediction")
+    if dubbing:
+        cmd.append("--dubbing")
+        if dubbing_language: cmd.extend(["--dubbing-language", str(dubbing_language)])
+        if dubbing_original_volume is not None: cmd.extend(["--dubbing-original-volume", str(dubbing_original_volume)])
 
     # Jump Cuts (Silence Removal)
     if remove_silence:
@@ -1115,6 +1125,26 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                      info=i18n("Auto-insert stock footage at static moments (requires Pexels API key)")
                  )
 
+             with gr.Accordion(i18n("Advanced AI"), open=False):
+                 engagement_prediction_input = gr.Checkbox(
+                     label=i18n("Engagement Prediction"), value=False,
+                     info=i18n("Predict engagement score using ML model (requires trained model)")
+                 )
+                 dubbing_input = gr.Checkbox(
+                     label=i18n("AI Dubbing"), value=False,
+                     info=i18n("Translate and voice-over clips in target language (edge-tts)")
+                 )
+                 with gr.Row(visible=False) as dubbing_options_row:
+                     dubbing_language_input = gr.Dropdown(
+                         choices=["en", "fr", "es", "de", "pt", "tr", "ja", "zh"],
+                         label=i18n("Dubbing Language"), value="en"
+                     )
+                     dubbing_original_volume_input = gr.Slider(
+                         label=i18n("Original Audio Volume"), minimum=0.0, maximum=1.0, value=0.2, step=0.05,
+                         info=i18n("Volume of original audio during dubbing (0 = muted)")
+                     )
+                 dubbing_input.change(lambda x: gr.update(visible=x), inputs=dubbing_input, outputs=dubbing_options_row)
+
              with gr.Accordion(i18n("Jump Cuts (Silence Removal)"), open=False):
                  remove_silence_input = gr.Checkbox(
                      label=i18n("Remove Silences"), value=False,
@@ -1236,6 +1266,8 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  progress_bar_input, bar_color_input, bar_position_input, ab_variants_input, num_variants_input,
                  layout_template_input, auto_broll_input, transitions_input, output_resolution_input,
                  emoji_overlay_input, color_grade_input, grade_intensity_input,
+                 # Advanced AI (Phase 5)
+                 engagement_prediction_input, dubbing_input, dubbing_language_input, dubbing_original_volume_input,
                  # Jump Cuts (Silence Removal)
                  remove_silence_input, silence_threshold_input, silence_min_duration_input, silence_max_keep_input,
                  # Parts Mode
@@ -1272,6 +1304,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  progress_bar_input, bar_color_input, bar_position_input, ab_variants_input, num_variants_input,
                  layout_template_input, auto_broll_input, transitions_input, output_resolution_input,
                  emoji_overlay_input, color_grade_input, grade_intensity_input,
+                 engagement_prediction_input, dubbing_input, dubbing_language_input, dubbing_original_volume_input,
                  remove_silence_input, silence_threshold_input, silence_min_duration_input, silence_max_keep_input,
                  # Parts Mode
                  enable_parts_input, target_part_duration_input,
