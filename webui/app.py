@@ -298,6 +298,7 @@ SETTINGS_KEYS = [
     "add_distraction", "distraction_dir", "distraction_file", "distraction_no_fetch", "distraction_ratio",
     "smart_trim", "trim_pad_start", "trim_pad_end", "scene_detection",
     "validate_clips", "hook_detection", "min_hook_score", "blur_detection", "max_blur_ratio",
+    "pacing_analysis", "composite_scoring",
     "remove_silence", "silence_threshold", "silence_min_duration", "silence_max_keep",
     "enable_parts", "target_part_duration",
     "post_youtube", "post_tiktok", "youtube_privacy", "post_interval_minutes", "post_first_time",
@@ -332,6 +333,7 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
                      add_distraction, distraction_dir, distraction_file, distraction_no_fetch, distraction_ratio,
                      smart_trim, trim_pad_start, trim_pad_end, scene_detection,
                      validate_clips, hook_detection, min_hook_score, blur_detection, max_blur_ratio,
+                     pacing_analysis, composite_scoring,
                      remove_silence, silence_threshold, silence_min_duration, silence_max_keep,
                      enable_parts, target_part_duration,
                      post_youtube, post_tiktok, youtube_privacy, post_interval_minutes, post_first_time):
@@ -475,6 +477,10 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
     if blur_detection:
         cmd.append("--blur-detection")
         if max_blur_ratio is not None: cmd.extend(["--max-blur-ratio", str(max_blur_ratio)])
+    if pacing_analysis:
+        cmd.append("--pacing-analysis")
+    if composite_scoring:
+        cmd.append("--composite-scoring")
 
     # Jump Cuts (Silence Removal)
     if remove_silence:
@@ -975,6 +981,15 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                      )
                  blur_detection_input.change(lambda x: gr.update(visible=x), inputs=blur_detection_input, outputs=blur_options_row)
 
+                 pacing_analysis_input = gr.Checkbox(
+                     label=i18n("Pacing & Energy Analysis"), value=False,
+                     info=i18n("Analyze speech pace and audio energy to score clip dynamism")
+                 )
+                 composite_scoring_input = gr.Checkbox(
+                     label=i18n("Composite Quality Score"), value=False,
+                     info=i18n("Aggregate all quality signals into a single 0-100 score")
+                 )
+
              with gr.Accordion(i18n("Jump Cuts (Silence Removal)"), open=False):
                  remove_silence_input = gr.Checkbox(
                      label=i18n("Remove Silences"), value=False,
@@ -1089,6 +1104,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  # Video Quality
                  smart_trim_input, trim_pad_start_input, trim_pad_end_input, scene_detection_input,
                  validate_clips_input, hook_detection_input, min_hook_score_input, blur_detection_input, max_blur_ratio_input,
+                 pacing_analysis_input, composite_scoring_input,
                  # Jump Cuts (Silence Removal)
                  remove_silence_input, silence_threshold_input, silence_min_duration_input, silence_max_keep_input,
                  # Parts Mode
@@ -1118,6 +1134,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  add_distraction_input, distraction_dir_input, distraction_file_input, distraction_no_fetch_input, distraction_ratio_input,
                  smart_trim_input, trim_pad_start_input, trim_pad_end_input, scene_detection_input,
                  validate_clips_input, hook_detection_input, min_hook_score_input, blur_detection_input, max_blur_ratio_input,
+                 pacing_analysis_input, composite_scoring_input,
                  remove_silence_input, silence_threshold_input, silence_min_duration_input, silence_max_keep_input,
                  # Parts Mode
                  enable_parts_input, target_part_duration_input,

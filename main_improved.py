@@ -174,6 +174,9 @@ def main() -> None:
     parser.add_argument("--min-hook-score", type=int, default=40, help="Minimum hook score to keep clip (0-100, default: 40)")
     parser.add_argument("--blur-detection", action="store_true", help="Detect blurry frames in clips")
     parser.add_argument("--max-blur-ratio", type=float, default=0.3, help="Max ratio of blurry frames (0-1, default: 0.3)")
+    # --- Scoring (Phase 2) ---
+    parser.add_argument("--pacing-analysis", action="store_true", help="Analyze speech pacing and audio energy")
+    parser.add_argument("--composite-scoring", action="store_true", help="Compute composite quality score from all signals")
 
     parser.add_argument("--enable-parts", action="store_true", help="Enable parts mode: long passages auto-split into multi-part series")
     parser.add_argument("--target-part-duration", type=int, default=55, help="Target duration for each part after splitting (seconds, default: 55)")
@@ -699,8 +702,8 @@ def main() -> None:
                 max_silence_keep=args.silence_max_keep,
             )
 
-        # 4c. Clip Quality Validation (validate-clips, hook-detection, blur-detection)
-        if any([args.validate_clips, args.hook_detection, args.blur_detection]) and workflow_choice not in ("3",):
+        # 4c. Clip Quality Validation (validate-clips, hook-detection, blur-detection, pacing, composite)
+        if any([args.validate_clips, args.hook_detection, args.blur_detection, args.pacing_analysis, args.composite_scoring]) and workflow_choice not in ("3",):
             import glob as glob_mod
             cuts_folder = os.path.join(project_folder, "cuts")
             subs_folder = os.path.join(project_folder, "subs")
@@ -746,6 +749,49 @@ def main() -> None:
                         if blur["blur_ratio"] > args.max_blur_ratio:
                             logger.warning(f"  {filename}: high blur ratio {blur['blur_ratio']:.2f}")
                         logger.info(f"  {filename}: blur_ratio={blur['blur_ratio']}, sharpness={blur['avg_sharpness']}")
+
+                    # A4: Pacing/energy analysis
+                    if args.pacing_analysis:
+                        from scripts.pacing_analyzer import analyze_pacing
+                        from scripts.smart_trim import load_whisperx_words
+                        base_name = filename.replace("_original_scale.mp4", "")
+                        json_path = os.path.join(subs_folder, f"{base_name}_processed.json")
+                        words = load_whisperx_words(json_path) if os.path.exists(json_path) else []
+                        pacing = analyze_pacing(video_path, words)
+                        seg["pacing_score"] = pacing["pacing_score"]
+                        seg["words_per_sec"] = pacing["words_per_sec"]
+                        seg["avg_rms_energy"] = pacing["avg_rms_energy"]
+                        logger.info(f"  {filename}: pacing_score={pacing['pacing_score']}, wps={pacing['words_per_sec']}")
+
+                    # A7+A8: Visual variety + Speaker activity
+                    if args.validate_clips:
+                        from scripts.clip_validator import score_visual_variety, analyze_speaker_activity
+                        from scripts.smart_trim import load_whisperx_words
+                        variety = score_visual_variety(video_path)
+                        seg["visual_variety_score"] = variety["visual_variety_score"]
+                        seg["scene_change_count"] = variety["scene_change_count"]
+                        logger.info(f"  {filename}: visual_variety={variety['visual_variety_score']}")
+
+                        base_name = filename.replace("_original_scale.mp4", "")
+                        json_path = os.path.join(subs_folder, f"{base_name}_processed.json")
+                        words = load_whisperx_words(json_path) if os.path.exists(json_path) else []
+                        if words:
+                            speaker = analyze_speaker_activity(words, 0, words[-1].get("end", 0))
+                            seg["speaking_time_ratio"] = speaker["speaking_time_ratio"]
+                            logger.info(f"  {filename}: speaking_ratio={speaker['speaking_time_ratio']}")
+
+                    # A9: Composite score
+                    if args.composite_scoring:
+                        from scripts.composite_scorer import compute_composite_score
+                        composite = compute_composite_score(
+                            hook_score=seg.get("hook_score", 50.0),
+                            speech_ratio=seg.get("speech_ratio", 0.8),
+                            pacing_score=seg.get("pacing_score", 50.0),
+                            blur_ratio=seg.get("blur_ratio", 0.0),
+                            visual_variety_score=seg.get("visual_variety_score", 50.0),
+                        )
+                        seg["composite_quality_score"] = composite
+                        logger.info(f"  {filename}: composite_score={composite}")
 
                 # Save updated metadata
                 segments_path = os.path.join(project_folder, "viral_segments.txt")
