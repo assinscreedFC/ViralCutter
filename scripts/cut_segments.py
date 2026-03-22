@@ -8,7 +8,15 @@ import json
 
 logger = logging.getLogger(__name__)
 
-def cut(segments: dict | None, project_folder: str = "tmp", skip_video: bool = False) -> None:
+def cut(
+    segments: dict | None,
+    project_folder: str = "tmp",
+    skip_video: bool = False,
+    smart_trim: bool = False,
+    trim_pad_start: float = 0.3,
+    trim_pad_end: float = 0.5,
+    scene_detection: bool = False,
+) -> None:
 
     def check_nvenc_support():
         # ... (unchanged)
@@ -18,7 +26,9 @@ def cut(segments: dict | None, project_folder: str = "tmp", skip_video: bool = F
         except subprocess.CalledProcessError:
             return False
 
-    def generate_segments(response, project_folder, skip_video):
+    def generate_segments(response, project_folder, skip_video, smart_trim=smart_trim,
+                          trim_pad_start=trim_pad_start, trim_pad_end=trim_pad_end,
+                          scene_detection=scene_detection):
         if not check_nvenc_support():
             logger.info("NVENC is not supported on this system. Falling back to libx264.")
             video_codec = "libx264"
@@ -96,11 +106,55 @@ def cut(segments: dict | None, project_folder: str = "tmp", skip_video: bool = F
                     start_time_seconds = int(h) * 3600 + int(m) * 60 + float(s)
                     start_time_str = str(start_time)
 
+            # --- Smart Trim: snap to sentence boundaries ---
+            if smart_trim:
+                try:
+                    from scripts.smart_trim import load_whisperx_words, snap_to_sentence_boundary
+                    words = load_whisperx_words(input_json_path)
+                    if words:
+                        end_time_sec = start_time_seconds + duration_seconds
+                        adj_start, adj_end = snap_to_sentence_boundary(
+                            start_time_seconds, end_time_sec, words,
+                            pad_start=trim_pad_start, pad_end=trim_pad_end,
+                        )
+                        logger.info(f"  Smart trim: {start_time_seconds:.2f}-{end_time_sec:.2f} -> {adj_start:.2f}-{adj_end:.2f}")
+                        start_time_seconds = adj_start
+                        start_time_str = f"{adj_start:.3f}"
+                        duration_seconds = adj_end - adj_start
+                        duration_str = f"{duration_seconds:.3f}"
+                except Exception as e:
+                    logger.warning(f"Smart trim failed, using original timestamps: {e}")
+
+            # --- Scene Detection: avoid cutting mid-scene ---
+            if scene_detection:
+                try:
+                    from scripts.scene_detector import detect_scenes, validate_cut_boundaries
+                    scenes = detect_scenes(input_file)
+                    if scenes:
+                        end_time_sec = start_time_seconds + duration_seconds
+                        result = validate_cut_boundaries(start_time_seconds, end_time_sec, scenes)
+                        if result["cuts_mid_scene"]:
+                            new_start = result["suggested_start"]
+                            new_end = result["suggested_end"]
+                            logger.info(f"  Scene snap: {start_time_seconds:.2f}-{end_time_sec:.2f} -> {new_start:.2f}-{new_end:.2f}")
+                            start_time_seconds = new_start
+                            start_time_str = f"{new_start:.3f}"
+                            duration_seconds = new_end - new_start
+                            duration_str = f"{duration_seconds:.3f}"
+                except Exception as e:
+                    logger.warning(f"Scene detection failed, using original timestamps: {e}")
+
             # Título para nome de arquivo
             title = segment.get("title", f"Segment_{i}")
             safe_title = "".join([c for c in title if c.isalnum() or c in " _-"]).strip()
             safe_title = safe_title.replace(" ", "_")[:60]
-            base_name = f"{i:03d}_{safe_title}"
+
+            part_num = segment.get("part_number", 1)
+            total_parts = segment.get("total_parts", 1)
+            if total_parts > 1:
+                base_name = f"{i:03d}_{safe_title}_Part{part_num}of{total_parts}"
+            else:
+                base_name = f"{i:03d}_{safe_title}"
 
             output_filename = f"{base_name}_original_scale.mp4"
             output_path = os.path.join(cuts_folder, output_filename)

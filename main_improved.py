@@ -160,6 +160,23 @@ def main() -> None:
     parser.add_argument("--distraction-no-fetch", action="store_true", help="Disable auto-fetch of distraction videos (use cache only)")
     parser.add_argument("--distraction-ratio", type=float, default=0.35,
                         help="Part de la hauteur de l'écran pour la distraction (0.20-0.50, défaut 0.35)")
+    parser.add_argument("--remove-silence", action="store_true", help="Remove silent portions from cut segments (jump cuts)")
+    parser.add_argument("--silence-threshold", type=float, default=-30, help="Silence detection threshold in dB (default: -30)")
+    parser.add_argument("--silence-min-duration", type=float, default=0.5, help="Minimum silence duration to detect in seconds (default: 0.5)")
+    parser.add_argument("--silence-max-keep", type=float, default=0.3, help="Maximum silence to keep in seconds, 0=remove all (default: 0.3)")
+    # --- Video Quality (Phase 1) ---
+    parser.add_argument("--smart-trim", action="store_true", help="Snap cuts to sentence boundaries using word timestamps")
+    parser.add_argument("--trim-pad-start", type=float, default=0.3, help="Padding before start in seconds (default: 0.3)")
+    parser.add_argument("--trim-pad-end", type=float, default=0.5, help="Padding after end in seconds (default: 0.5)")
+    parser.add_argument("--scene-detection", action="store_true", help="Detect scene changes to avoid mid-scene cuts")
+    parser.add_argument("--validate-clips", action="store_true", help="Validate clip boundaries for silence and compute speech ratio")
+    parser.add_argument("--hook-detection", action="store_true", help="Score first 3 seconds of each clip for hook strength")
+    parser.add_argument("--min-hook-score", type=int, default=40, help="Minimum hook score to keep clip (0-100, default: 40)")
+    parser.add_argument("--blur-detection", action="store_true", help="Detect blurry frames in clips")
+    parser.add_argument("--max-blur-ratio", type=float, default=0.3, help="Max ratio of blurry frames (0-1, default: 0.3)")
+
+    parser.add_argument("--enable-parts", action="store_true", help="Enable parts mode: long passages auto-split into multi-part series")
+    parser.add_argument("--target-part-duration", type=int, default=55, help="Target duration for each part after splitting (seconds, default: 55)")
 
     args = parser.parse_args()
     
@@ -544,7 +561,8 @@ def main() -> None:
                         content_type=content_type_arg,
                         enable_scoring=args.enable_scoring,
                         min_score=args.min_score,
-                        enable_validation=args.enable_validation
+                        enable_validation=args.enable_validation,
+                        enable_parts=args.enable_parts
                     )
                 
                 if not viral_segments or not viral_segments.get("segments"):
@@ -614,6 +632,26 @@ def main() -> None:
             except Exception as e:
                 logger.warning(f"TikTok caption generation failed: {e}")
 
+        # 3.7 Split Long Segments into Parts (LLM-guided)
+        if args.enable_parts and viral_segments and "segments" in viral_segments:
+            from scripts.split_parts import split_long_segments
+            logger.info(i18n("Splitting long segments into parts (AI-guided)..."))
+            transcript_segments_for_split = create_viral_segments.load_transcript(project_folder)
+            viral_segments = split_long_segments(
+                viral_segments,
+                transcript_json_path=os.path.join(project_folder, "input.json"),
+                transcript_segments=transcript_segments_for_split,
+                target_part_duration=args.target_part_duration,
+                min_part_duration=max(args.min_duration, 30),
+                max_normal_duration=args.max_duration,
+                ai_mode=ai_backend,
+                api_key=api_key,
+                model_name=args.ai_model_name,
+            )
+            save_json.save_viral_segments(viral_segments, project_folder=project_folder)
+            logger.info(i18n("{} segments after splitting into parts.").format(
+                len(viral_segments.get("segments", []))))
+
         # 4. Cut Segments
         # Se workflow for 3, pulamos corte
         if workflow_choice == "3":
@@ -640,8 +678,81 @@ def main() -> None:
             else:
                 logger.info(i18n("Cutting segments..."))
 
-            cut_segments.cut(viral_segments, project_folder=project_folder, skip_video=skip_cutting)
-        
+            cut_segments.cut(
+                viral_segments,
+                project_folder=project_folder,
+                skip_video=skip_cutting,
+                smart_trim=args.smart_trim,
+                trim_pad_start=args.trim_pad_start,
+                trim_pad_end=args.trim_pad_end,
+                scene_detection=args.scene_detection,
+            )
+
+        # 4b. Remove Silence (Jump Cuts)
+        if args.remove_silence and workflow_choice not in ("3",):
+            from scripts import remove_silence
+            logger.info(i18n("Removing silences (jump cuts)..."))
+            remove_silence.process_project(
+                project_folder=project_folder,
+                noise_db=args.silence_threshold,
+                min_silence_duration=args.silence_min_duration,
+                max_silence_keep=args.silence_max_keep,
+            )
+
+        # 4c. Clip Quality Validation (validate-clips, hook-detection, blur-detection)
+        if any([args.validate_clips, args.hook_detection, args.blur_detection]) and workflow_choice not in ("3",):
+            import glob as glob_mod
+            cuts_folder = os.path.join(project_folder, "cuts")
+            subs_folder = os.path.join(project_folder, "subs")
+            video_files = sorted(glob_mod.glob(os.path.join(cuts_folder, "*_original_scale.mp4")))
+
+            if video_files and viral_segments and "segments" in viral_segments:
+                logger.info(i18n("Validating clip quality..."))
+
+                for idx, video_path in enumerate(video_files):
+                    seg = viral_segments["segments"][idx] if idx < len(viral_segments["segments"]) else {}
+                    filename = os.path.basename(video_path)
+
+                    # A2: Silence boundary validation
+                    if args.validate_clips:
+                        from scripts.clip_validator import validate_clip_boundaries
+                        boundary = validate_clip_boundaries(video_path, noise_db=args.silence_threshold)
+                        seg["speech_ratio"] = boundary["speech_ratio"]
+                        seg["starts_on_silence"] = boundary["starts_on_silence"]
+                        seg["ends_on_silence"] = boundary["ends_on_silence"]
+                        if boundary["starts_on_silence"]:
+                            logger.warning(f"  {filename}: starts on silence!")
+                        logger.info(f"  {filename}: speech_ratio={boundary['speech_ratio']}")
+
+                    # A3: Hook detection
+                    if args.hook_detection:
+                        from scripts.hook_scorer import score_hook
+                        from scripts.smart_trim import load_whisperx_words
+                        # Load words from the segment's subtitle JSON
+                        base_name = filename.replace("_original_scale.mp4", "")
+                        json_path = os.path.join(subs_folder, f"{base_name}_processed.json")
+                        words = load_whisperx_words(json_path) if os.path.exists(json_path) else []
+                        hook = score_hook(video_path, words)
+                        seg["hook_score"] = hook["hook_score"]
+                        seg["hook_audio_energy"] = hook["audio_energy"]
+                        logger.info(f"  {filename}: hook_score={hook['hook_score']}")
+
+                    # A5: Blur detection
+                    if args.blur_detection:
+                        from scripts.blur_detector import detect_blur_frames
+                        blur = detect_blur_frames(video_path)
+                        seg["blur_ratio"] = blur["blur_ratio"]
+                        seg["avg_sharpness"] = blur["avg_sharpness"]
+                        if blur["blur_ratio"] > args.max_blur_ratio:
+                            logger.warning(f"  {filename}: high blur ratio {blur['blur_ratio']:.2f}")
+                        logger.info(f"  {filename}: blur_ratio={blur['blur_ratio']}, sharpness={blur['avg_sharpness']}")
+
+                # Save updated metadata
+                segments_path = os.path.join(project_folder, "viral_segments.txt")
+                with open(segments_path, "w", encoding="utf-8") as f:
+                    json.dump(viral_segments, f, indent=2, ensure_ascii=False)
+                logger.info(i18n("Clip quality validation complete."))
+
         # 5. Workflow Check
         if workflow_choice == "2":
             logger.info(i18n("Cut Only selected. Skipping Face Crop and Subtitles."))

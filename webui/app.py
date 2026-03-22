@@ -296,6 +296,10 @@ SETTINGS_KEYS = [
     "video_quality", "use_youtube_subs", "translate_target",
     "add_music", "music_dir", "music_file", "music_volume",
     "add_distraction", "distraction_dir", "distraction_file", "distraction_no_fetch", "distraction_ratio",
+    "smart_trim", "trim_pad_start", "trim_pad_end", "scene_detection",
+    "validate_clips", "hook_detection", "min_hook_score", "blur_detection", "max_blur_ratio",
+    "remove_silence", "silence_threshold", "silence_min_duration", "silence_max_keep",
+    "enable_parts", "target_part_duration",
     "post_youtube", "post_tiktok", "youtube_privacy", "post_interval_minutes", "post_first_time",
 ]
 
@@ -326,6 +330,10 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
                      h_size, w_block, gap, mode, under, strike, border_s, remove_punc, video_quality, use_youtube_subs, translate_target,
                      add_music, music_dir, music_file, music_volume,
                      add_distraction, distraction_dir, distraction_file, distraction_no_fetch, distraction_ratio,
+                     smart_trim, trim_pad_start, trim_pad_end, scene_detection,
+                     validate_clips, hook_detection, min_hook_score, blur_detection, max_blur_ratio,
+                     remove_silence, silence_threshold, silence_min_duration, silence_max_keep,
+                     enable_parts, target_part_duration,
                      post_youtube, post_tiktok, youtube_privacy, post_interval_minutes, post_first_time):
     
     global current_process
@@ -431,6 +439,12 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
     if enable_validation:
         cmd.append("--enable-validation")
 
+    # Parts mode
+    if enable_parts:
+        cmd.append("--enable-parts")
+        if target_part_duration is not None:
+            cmd.extend(["--target-part-duration", str(int(target_part_duration))])
+
     # Music
     if add_music:
         cmd.append("--add-music")
@@ -445,6 +459,29 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
         if distraction_file: cmd.extend(["--distraction-file", distraction_file])
         if distraction_no_fetch: cmd.append("--distraction-no-fetch")
         if distraction_ratio is not None: cmd.extend(["--distraction-ratio", str(distraction_ratio)])
+
+    # Video Quality
+    if smart_trim:
+        cmd.append("--smart-trim")
+        if trim_pad_start is not None: cmd.extend(["--trim-pad-start", str(trim_pad_start)])
+        if trim_pad_end is not None: cmd.extend(["--trim-pad-end", str(trim_pad_end)])
+    if scene_detection:
+        cmd.append("--scene-detection")
+    if validate_clips:
+        cmd.append("--validate-clips")
+    if hook_detection:
+        cmd.append("--hook-detection")
+        if min_hook_score is not None: cmd.extend(["--min-hook-score", str(int(min_hook_score))])
+    if blur_detection:
+        cmd.append("--blur-detection")
+        if max_blur_ratio is not None: cmd.extend(["--max-blur-ratio", str(max_blur_ratio)])
+
+    # Jump Cuts (Silence Removal)
+    if remove_silence:
+        cmd.append("--remove-silence")
+        if silence_threshold is not None: cmd.extend(["--silence-threshold", str(silence_threshold)])
+        if silence_min_duration is not None: cmd.extend(["--silence-min-duration", str(silence_min_duration)])
+        if silence_max_keep is not None: cmd.extend(["--silence-max-keep", str(silence_max_keep)])
 
     cmd.append("--skip-prompts") # Always skip prompts in WebUI to prevent freezing
 
@@ -727,6 +764,23 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                             value=True,
                             info=i18n("LLM reviews each segment: hook strength, standalone test, narrative arc, viral value. Rejects weak segments.")
                         )
+                        with gr.Row():
+                            enable_parts_input = gr.Checkbox(
+                                label=i18n("Enable Parts Mode"),
+                                value=False,
+                                info=i18n("Allow AI to select long passages. They are auto-split into a multi-part series (Part 1, Part 2...).")
+                            )
+                            with gr.Row(visible=False) as parts_duration_row:
+                                target_part_duration_input = gr.Slider(
+                                    label=i18n("Target part duration (s)"),
+                                    minimum=20, maximum=90, value=55, step=5,
+                                    info=i18n("Target duration for each part after splitting")
+                                )
+                        enable_parts_input.change(
+                            lambda x: gr.update(visible=x),
+                            inputs=enable_parts_input,
+                            outputs=parts_duration_row
+                        )
 
                     model_input = gr.Dropdown(["tiny", "small", "medium", "large", "large-v1", "large-v2", "large-v3", "turbo", "large-v3-turbo", "distil-large-v2", "distil-medium.en", "distil-small.en", "distil-large-v3"], label=i18n("Whisper Model"), value="large-v3-turbo")
                     with gr.Row():
@@ -878,6 +932,72 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                          )
                  add_distraction_input.change(lambda x: gr.update(visible=x), inputs=add_distraction_input, outputs=distraction_options_row)
 
+             with gr.Accordion(i18n("Video Quality"), open=False):
+                 smart_trim_input = gr.Checkbox(
+                     label=i18n("Smart Trim (sentence boundaries)"), value=False,
+                     info=i18n("Snap cuts to sentence boundaries using word timestamps + padding")
+                 )
+                 with gr.Row(visible=False) as trim_options_row:
+                     trim_pad_start_input = gr.Slider(
+                         label=i18n("Start Padding (s)"), minimum=0.0, maximum=1.0, value=0.3, step=0.05
+                     )
+                     trim_pad_end_input = gr.Slider(
+                         label=i18n("End Padding (s)"), minimum=0.0, maximum=1.5, value=0.5, step=0.05
+                     )
+                 smart_trim_input.change(lambda x: gr.update(visible=x), inputs=smart_trim_input, outputs=trim_options_row)
+
+                 scene_detection_input = gr.Checkbox(
+                     label=i18n("Scene Detection"), value=False,
+                     info=i18n("Detect scene changes to avoid cutting mid-transition")
+                 )
+                 validate_clips_input = gr.Checkbox(
+                     label=i18n("Validate Clip Boundaries"), value=False,
+                     info=i18n("Check clips for silence at start/end and compute speech ratio")
+                 )
+                 hook_detection_input = gr.Checkbox(
+                     label=i18n("Hook Detection"), value=False,
+                     info=i18n("Score first 3 seconds of each clip for stop-scroll potential")
+                 )
+                 with gr.Row(visible=False) as hook_options_row:
+                     min_hook_score_input = gr.Slider(
+                         label=i18n("Min Hook Score"), minimum=0, maximum=100, value=40, step=5
+                     )
+                 hook_detection_input.change(lambda x: gr.update(visible=x), inputs=hook_detection_input, outputs=hook_options_row)
+
+                 blur_detection_input = gr.Checkbox(
+                     label=i18n("Blur Detection"), value=False,
+                     info=i18n("Detect blurry frames and flag low-quality clips")
+                 )
+                 with gr.Row(visible=False) as blur_options_row:
+                     max_blur_ratio_input = gr.Slider(
+                         label=i18n("Max Blur Ratio"), minimum=0.0, maximum=1.0, value=0.3, step=0.05,
+                         info=i18n("Maximum ratio of blurry frames allowed (0-1)")
+                     )
+                 blur_detection_input.change(lambda x: gr.update(visible=x), inputs=blur_detection_input, outputs=blur_options_row)
+
+             with gr.Accordion(i18n("Jump Cuts (Silence Removal)"), open=False):
+                 remove_silence_input = gr.Checkbox(
+                     label=i18n("Remove Silences"), value=False,
+                     info=i18n("Automatically detect and remove silent portions for tighter pacing")
+                 )
+                 with gr.Row(visible=False) as silence_options_row:
+                     silence_threshold_input = gr.Slider(
+                         label=i18n("Silence Threshold (dB)"),
+                         minimum=-60, maximum=-10, value=-30, step=1,
+                         info=i18n("Audio level below which is considered silence (default -30 dB)")
+                     )
+                     silence_min_duration_input = gr.Slider(
+                         label=i18n("Min Silence to Cut (s)"),
+                         minimum=0.1, maximum=5.0, value=0.5, step=0.1,
+                         info=i18n("Only remove silences longer than this (default 0.5s)")
+                     )
+                     silence_max_keep_input = gr.Slider(
+                         label=i18n("Max Silence to Keep (s)"),
+                         minimum=0.0, maximum=2.0, value=0.3, step=0.05,
+                         info=i18n("Keep this much silence for natural pacing (0 = remove all)")
+                     )
+                 remove_silence_input.change(lambda x: gr.update(visible=x), inputs=remove_silence_input, outputs=silence_options_row)
+
              with gr.Accordion(i18n("Auto Post"), open=False):
                  with gr.Row():
                      post_youtube_input = gr.Checkbox(
@@ -966,6 +1086,13 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  add_music_input, music_dir_input, music_file_input, music_volume_input,
                  # Split-screen distraction
                  add_distraction_input, distraction_dir_input, distraction_file_input, distraction_no_fetch_input, distraction_ratio_input,
+                 # Video Quality
+                 smart_trim_input, trim_pad_start_input, trim_pad_end_input, scene_detection_input,
+                 validate_clips_input, hook_detection_input, min_hook_score_input, blur_detection_input, max_blur_ratio_input,
+                 # Jump Cuts (Silence Removal)
+                 remove_silence_input, silence_threshold_input, silence_min_duration_input, silence_max_keep_input,
+                 # Parts Mode
+                 enable_parts_input, target_part_duration_input,
                  # Auto Post
                  post_youtube_input, post_tiktok_input, youtube_privacy_input, post_interval_input, post_first_time_input,
              ], outputs=[logs_output, start_btn, stop_btn, results_html])
@@ -989,6 +1116,11 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  video_quality_input, use_youtube_subs_input, translate_input,
                  add_music_input, music_dir_input, music_file_input, music_volume_input,
                  add_distraction_input, distraction_dir_input, distraction_file_input, distraction_no_fetch_input, distraction_ratio_input,
+                 smart_trim_input, trim_pad_start_input, trim_pad_end_input, scene_detection_input,
+                 validate_clips_input, hook_detection_input, min_hook_score_input, blur_detection_input, max_blur_ratio_input,
+                 remove_silence_input, silence_threshold_input, silence_min_duration_input, silence_max_keep_input,
+                 # Parts Mode
+                 enable_parts_input, target_part_duration_input,
                  # Auto Post
                  post_youtube_input, post_tiktok_input, youtube_privacy_input, post_interval_input, post_first_time_input,
              ]
@@ -1255,12 +1387,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
         <hr>
         <div style='text-align: center; font-size: 0.9em; color: #777;'>
             <p>
-                <strong>{i18n('Desenvolvido por Rafael Godoy')}</strong>
-                <br>
-                {i18n('Apoie o projeto, qualquer valor é bem-vindo:')} 
-                <a href='https://nubank.com.br/pagar/1ls6a4/0QpSSbWBSq' target='_blank'><strong>{i18n('Apoiar via PIX')}</strong></a>
-                <br>
-                {i18n('100% local • open source • no subscription required')} 
+                {i18n('100% local • open source • no subscription required')}
             </p>
         </div>
         """)
