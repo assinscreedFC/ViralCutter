@@ -35,7 +35,7 @@ def compute_composite_score(
     Returns:
         Composite score 0-100.
     """
-    w = weights or DEFAULT_WEIGHTS
+    w = {**DEFAULT_WEIGHTS, **(weights or {})}
 
     # Normalize all inputs to 0-100 scale
     speech_score = speech_ratio * 100.0

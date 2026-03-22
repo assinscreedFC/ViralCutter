@@ -58,6 +58,16 @@ def cut(
         input_json_path = os.path.join(project_folder, "input.json")
 
         segments = response.get("segments", [])
+
+        # Load whisperx words once before the loop (N+1 fix)
+        words = []
+        if smart_trim:
+            try:
+                from scripts.smart_trim import load_whisperx_words
+                words = load_whisperx_words(input_json_path)
+            except Exception as e:
+                logger.warning(f"Failed to preload whisperx words: {e}")
+
         for i, segment in enumerate(segments):
             start_time = segment.get("start_time", "00:00:00")
             duration = segment.get("duration", 0)
@@ -79,13 +89,6 @@ def cut(
                      # Implementar parser se necessario, mas assumindo float por enquanto baseado no historico
                     duration_seconds = 0
                     duration_str = duration
-            
-            # Heurística para start_time:
-            if isinstance(start_time, (int, float)):
-                if start_time > 10000: # Se for milisegundos grandes? Assumindo segundos ou HHMMSS?
-                   # O código original: if start_time int -> start_time/1000.0.
-                   # Vamos manter a lógica original: int -> milisegundos
-                   pass
             
             # Refazendo a logica original exata para seguranca e capturando o float:
             if isinstance(start_time, int):
@@ -109,8 +112,7 @@ def cut(
             # --- Smart Trim: snap to sentence boundaries ---
             if smart_trim:
                 try:
-                    from scripts.smart_trim import load_whisperx_words, snap_to_sentence_boundary
-                    words = load_whisperx_words(input_json_path)
+                    from scripts.smart_trim import snap_to_sentence_boundary
                     if words:
                         end_time_sec = start_time_seconds + duration_seconds
                         adj_start, adj_end = snap_to_sentence_boundary(
@@ -225,4 +227,6 @@ def cut(
     else:
         response = segments
 
-    generate_segments(response, project_folder, skip_video)
+    generate_segments(response, project_folder, skip_video,
+                      smart_trim=smart_trim, trim_pad_start=trim_pad_start,
+                      trim_pad_end=trim_pad_end, scene_detection=scene_detection)

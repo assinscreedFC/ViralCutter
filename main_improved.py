@@ -177,6 +177,12 @@ def main() -> None:
     # --- Scoring (Phase 2) ---
     parser.add_argument("--pacing-analysis", action="store_true", help="Analyze speech pacing and audio energy")
     parser.add_argument("--composite-scoring", action="store_true", help="Compute composite quality score from all signals")
+    # --- Features (Phase 3) ---
+    parser.add_argument("--remove-fillers", action="store_true", help="Detect and remove filler words (um, uh, like...)")
+    parser.add_argument("--auto-thumbnail", action="store_true", help="Generate best-frame thumbnails for each clip")
+    parser.add_argument("--auto-zoom", action="store_true", help="Apply dynamic zoom on LLM-generated zoom_cues")
+    parser.add_argument("--speed-ramp", action="store_true", help="Speed up dead moments, slow down highlights")
+    parser.add_argument("--speed-up-factor", type=float, default=1.5, help="Speed factor for dead moments (default: 1.5)")
 
     parser.add_argument("--enable-parts", action="store_true", help="Enable parts mode: long passages auto-split into multi-part series")
     parser.add_argument("--target-part-duration", type=int, default=55, help="Target duration for each part after splitting (seconds, default: 55)")
@@ -702,9 +708,66 @@ def main() -> None:
                 max_silence_keep=args.silence_max_keep,
             )
 
+        # 4d. Filler word removal
+        if args.remove_fillers and workflow_choice not in ("3",):
+            import glob as glob_mod
+            from scripts.filler_removal import detect_fillers, remove_fillers_from_video, update_subtitle_json
+            from scripts.smart_trim import load_whisperx_words
+
+            cuts_folder = os.path.join(project_folder, "cuts")
+            subs_folder = os.path.join(project_folder, "subs")
+            video_files = sorted(glob_mod.glob(os.path.join(cuts_folder, "*_original_scale.mp4")))
+
+            for video_path in video_files:
+                filename = os.path.basename(video_path)
+                base_name = filename.replace("_original_scale.mp4", "")
+                json_path = os.path.join(subs_folder, f"{base_name}_processed.json")
+                words = load_whisperx_words(json_path) if os.path.exists(json_path) else []
+                if words:
+                    fillers = detect_fillers(words)
+                    if fillers:
+                        logger.info(f"Found {len(fillers)} fillers in {filename}")
+                        temp_out = video_path + ".tmp.mp4"
+                        if remove_fillers_from_video(video_path, temp_out, fillers):
+                            os.replace(temp_out, video_path)
+                            update_subtitle_json(json_path, fillers, json_path)
+                        elif os.path.exists(temp_out):
+                            os.remove(temp_out)
+
+        # 4e. Speed ramp
+        if args.speed_ramp and workflow_choice not in ("3",):
+            import glob as glob_mod
+            from scripts.speed_ramp import apply_speed_ramp
+            from scripts.remove_silence import detect_silences
+
+            cuts_folder = os.path.join(project_folder, "cuts")
+            video_files = sorted(glob_mod.glob(os.path.join(cuts_folder, "*_original_scale.mp4")))
+
+            # Load zoom_cues for highlights
+            segments_path = os.path.join(project_folder, "viral_segments.txt")
+            all_zoom_cues = []
+            if os.path.exists(segments_path):
+                with open(segments_path, "r", encoding="utf-8") as f:
+                    vs = json.load(f)
+                all_zoom_cues = [s.get("zoom_cues", []) for s in vs.get("segments", [])]
+
+            for idx, video_path in enumerate(video_files):
+                silences = detect_silences(video_path, noise_db=-35, min_duration=0.8)
+                highlights = None
+                if idx < len(all_zoom_cues) and all_zoom_cues[idx]:
+                    highlights = [{"timestamp": z.get("timestamp", 0), "duration": z.get("duration", 1.5)} for z in all_zoom_cues[idx]]
+                if silences:
+                    temp_out = video_path + ".tmp.mp4"
+                    if apply_speed_ramp(video_path, temp_out, silences, speed_up_factor=args.speed_up_factor, highlights=highlights):
+                        os.replace(temp_out, video_path)
+                        logger.info(f"Speed ramp applied to {os.path.basename(video_path)}")
+                    elif os.path.exists(temp_out):
+                        os.remove(temp_out)
+
         # 4c. Clip Quality Validation (validate-clips, hook-detection, blur-detection, pacing, composite)
         if any([args.validate_clips, args.hook_detection, args.blur_detection, args.pacing_analysis, args.composite_scoring]) and workflow_choice not in ("3",):
             import glob as glob_mod
+            from scripts.smart_trim import load_whisperx_words
             cuts_folder = os.path.join(project_folder, "cuts")
             subs_folder = os.path.join(project_folder, "subs")
             video_files = sorted(glob_mod.glob(os.path.join(cuts_folder, "*_original_scale.mp4")))
@@ -713,7 +776,10 @@ def main() -> None:
                 logger.info(i18n("Validating clip quality..."))
 
                 for idx, video_path in enumerate(video_files):
-                    seg = viral_segments["segments"][idx] if idx < len(viral_segments["segments"]) else {}
+                    if idx >= len(viral_segments["segments"]):
+                        logger.warning(f"Skipping validation for {os.path.basename(video_path)}: no matching segment data")
+                        continue
+                    seg = viral_segments["segments"][idx]
                     filename = os.path.basename(video_path)
 
                     # A2: Silence boundary validation
@@ -730,7 +796,6 @@ def main() -> None:
                     # A3: Hook detection
                     if args.hook_detection:
                         from scripts.hook_scorer import score_hook
-                        from scripts.smart_trim import load_whisperx_words
                         # Load words from the segment's subtitle JSON
                         base_name = filename.replace("_original_scale.mp4", "")
                         json_path = os.path.join(subs_folder, f"{base_name}_processed.json")
@@ -753,7 +818,6 @@ def main() -> None:
                     # A4: Pacing/energy analysis
                     if args.pacing_analysis:
                         from scripts.pacing_analyzer import analyze_pacing
-                        from scripts.smart_trim import load_whisperx_words
                         base_name = filename.replace("_original_scale.mp4", "")
                         json_path = os.path.join(subs_folder, f"{base_name}_processed.json")
                         words = load_whisperx_words(json_path) if os.path.exists(json_path) else []
@@ -766,7 +830,6 @@ def main() -> None:
                     # A7+A8: Visual variety + Speaker activity
                     if args.validate_clips:
                         from scripts.clip_validator import score_visual_variety, analyze_speaker_activity
-                        from scripts.smart_trim import load_whisperx_words
                         variety = score_visual_variety(video_path)
                         seg["visual_variety_score"] = variety["visual_variety_score"]
                         seg["scene_change_count"] = variety["scene_change_count"]
@@ -972,6 +1035,23 @@ def main() -> None:
             except Exception as e:
                 logger.error(i18n("[ERROR] Unexpected error during subtitle burning: {}").format(str(e)))
                 raise e
+
+        # 9b. Auto thumbnails
+        if args.auto_thumbnail and workflow_choice not in ("3",):
+            import glob as glob_mod
+            from scripts.auto_thumbnail import extract_best_frame, save_thumbnail
+
+            burned_folder = os.path.join(project_folder, "burned_sub")
+            if not os.path.isdir(burned_folder):
+                burned_folder = os.path.join(project_folder, "cuts")
+            video_files = sorted(glob_mod.glob(os.path.join(burned_folder, "*.mp4")))
+
+            for video_path in video_files:
+                frame, ts = extract_best_frame(video_path)
+                if frame is not None:
+                    thumb_path = video_path.rsplit(".", 1)[0] + "_thumbnail.jpg"
+                    save_thumbnail(frame, thumb_path)
+                    logger.info(f"Thumbnail saved: {os.path.basename(thumb_path)}")
 
         # Organização Final (Opcional, pois agora já está tudo em project_folder)
         # organize_output.organize(project_folder=project_folder)

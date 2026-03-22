@@ -35,6 +35,9 @@ def detect_silences(video_path: str, noise_db: float = -30, min_duration: float 
         "-f", "null", "-",
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode not in (0, 1):
+        logger.warning(f"ffmpeg silencedetect failed (rc={result.returncode}): {result.stderr[-300:]}")
+        return []
     stderr = result.stderr
 
     silences = []
@@ -79,7 +82,7 @@ def validate_clip_boundaries(
 
     silences = detect_silences(video_path, noise_db, min_silence)
 
-    total_silence = sum(min(s["end"], duration) - s["start"] for s in silences)
+    total_silence = sum(max(0.0, min(s["end"], duration) - max(0.0, s["start"])) for s in silences)
     speech_ratio = max(0.0, 1.0 - (total_silence / duration)) if duration > 0 else 1.0
 
     # Check if clip starts on silence
@@ -139,32 +142,33 @@ def score_visual_variety(
     total_samples = 0
 
     frame_idx = 0
-    while True:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-        ret, frame = cap.read()
-        if not ret:
-            break
+    try:
+        while True:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+            ret, frame = cap.read()
+            if not ret:
+                break
 
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        total_samples += 1
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            total_samples += 1
 
-        # Scene change detection via frame differencing
-        if prev_gray is not None:
-            diff = cv2.absdiff(prev_gray, gray)
-            if np.mean(diff) > diff_threshold:
-                scene_changes += 1
+            # Scene change detection via frame differencing
+            if prev_gray is not None:
+                diff = cv2.absdiff(prev_gray, gray)
+                if np.mean(diff) > diff_threshold:
+                    scene_changes += 1
 
-        # Face detection (lightweight Haar)
-        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.3, minNeighbors=3, minSize=(60, 60))
-        if len(faces) > 0:
-            face_count += 1
+            # Face detection (lightweight Haar)
+            faces = face_cascade.detectMultiScale(gray, scaleFactor=1.3, minNeighbors=3, minSize=(60, 60))
+            if len(faces) > 0:
+                face_count += 1
 
-        prev_gray = gray
-        frame_idx += frame_step
-        if frame_idx >= total_frames:
-            break
-
-    cap.release()
+            prev_gray = gray
+            frame_idx += frame_step
+            if frame_idx >= total_frames:
+                break
+    finally:
+        cap.release()
 
     face_ratio = face_count / total_samples if total_samples > 0 else 0.0
 

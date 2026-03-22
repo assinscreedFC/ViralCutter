@@ -35,9 +35,9 @@ def analyze_pacing(
         ]
         duration = end_sec - start_sec
     else:
-        words_in_range = transcript_words
-        if transcript_words:
-            duration = max(w.get("end", 0) for w in transcript_words) - min(w.get("start", 0) for w in transcript_words)
+        words_in_range = [w for w in transcript_words if w.get("start", 0) >= start_sec]
+        if words_in_range:
+            duration = max(w.get("end", 0) for w in words_in_range) - start_sec
         else:
             duration = 0
 
@@ -53,8 +53,8 @@ def analyze_pacing(
             window = 3.0
             energies = []
             t = start_sec
-            while t < (end_sec or duration):
-                e = compute_audio_energy_rms(video_path, t, min(window, (end_sec or duration) - t))
+            while t < (end_sec if end_sec is not None else duration):
+                e = compute_audio_energy_rms(video_path, t, min(window, (end_sec if end_sec is not None else duration) - t))
                 energies.append(e)
                 t += window
             if energies:
