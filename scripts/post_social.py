@@ -282,6 +282,39 @@ def upload_to_youtube(
 
 # ── TikTok ────────────────────────────────────────────────────────────────────
 
+def _wait_for_upload_complete(page, timeout: int = 300) -> None:
+    """Attend que TikTok confirme la fin du traitement serveur.
+
+    Apres le clic "Post", TikTok peut afficher un spinner puis rediriger
+    ou afficher un message de succes. On poll jusqu'a ce que la page quitte
+    l'ecran d'upload OU timeout (defaut 5min).
+    """
+    import time
+
+    upload_url = "tiktok.com/upload"
+    start = time.time()
+    poll_interval = 3
+    _logger = logging.getLogger(__name__)
+
+    while time.time() - start < timeout:
+        current_url = page.url
+        if upload_url not in current_url:
+            _logger.info("[TikTok] Traitement termine (redirection detectee)")
+            return
+
+        try:
+            success = page.locator("text=Your video has been uploaded")
+            if success.is_visible(timeout=1000):
+                _logger.info("[TikTok] Traitement termine (message de succes)")
+                return
+        except Exception:
+            pass
+
+        time.sleep(poll_interval)
+
+    _logger.warning("[TikTok] Timeout apres %ds — fermeture du browser", timeout)
+
+
 def _tiktok_upload_worker(
     video_path: str,
     caption: str,
@@ -290,12 +323,13 @@ def _tiktok_upload_worker(
 ) -> None:
     """Top-level worker executed in a subprocess (no asyncio loop).
 
-    Loads cookies from a Cookie-Editor JSON file and passes them as
-    cookies_list to tiktok-uploader (which expects Netscape format via
-    the `cookies` param — JSON must go through cookies_list instead).
+    Loads cookies from a Cookie-Editor JSON file and uses TikTokUploader
+    directly to keep control of the browser after upload — waits for
+    TikTok server-side processing before closing.
     """
     import json as _json
-    from tiktok_uploader.upload import upload_video
+    from tiktok_uploader.upload import TikTokUploader
+    from tiktok_uploader import config as tiktok_config
 
     with open(cookies_path, encoding="utf-8") as f:
         raw = _json.load(f)
@@ -315,10 +349,35 @@ def _tiktok_upload_worker(
         if c.get("name") and c.get("value")
     ]
 
-    kwargs: dict = {"filename": video_path, "description": caption, "cookies_list": cookies_list, "headless": False}
+    video_dict: dict = {"path": video_path, "description": caption}
     if schedule is not None:
-        kwargs["schedule"] = schedule
-    upload_video(**kwargs)
+        video_dict["schedule"] = schedule
+
+    # Augmenter le timeout d'upload pour les videos longues (defaut lib: 180s)
+    original_uploading_wait = tiktok_config.uploading_wait
+    tiktok_config.uploading_wait = 600  # 10 min pour uploader le fichier
+
+    # Empecher la lib de fermer le browser — on gere l'attente nous-memes
+    original_quit = tiktok_config.quit_on_end
+    tiktok_config.quit_on_end = False
+
+    uploader = TikTokUploader(cookies_list=cookies_list, headless=False)
+
+    try:
+        try:
+            uploader.upload_videos([video_dict])
+        except Exception as upload_err:
+            # La lib tiktok-uploader peut crash sur des selecteurs obsoletes
+            # (ex: .TUXButton--primary) meme si TikTok a accepte la video.
+            # On laisse _wait_for_upload_complete verifier le resultat reel.
+            logging.getLogger(__name__).warning(
+                "[TikTok] Erreur lib upload (selecteurs?): %s — verification en cours...", upload_err
+            )
+        _wait_for_upload_complete(uploader.page, timeout=300)
+    finally:
+        tiktok_config.uploading_wait = original_uploading_wait
+        tiktok_config.quit_on_end = original_quit
+        uploader.close()
 
 
 def upload_to_tiktok(
@@ -365,7 +424,7 @@ def upload_to_tiktok(
                 caption,
                 cookies_path,
                 schedule,
-            ).result()
+            ).result(timeout=900)  # 15 min max (upload + traitement serveur)
 
         result = {
             "platform": "tiktok",
