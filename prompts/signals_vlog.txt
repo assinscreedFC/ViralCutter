@@ -1,24 +1,14 @@
-### VLOG / LIFESTYLE SIGNALS — Additional Rules
+### VLOG / LIFESTYLE
 
-You are analyzing VLOG or LIFESTYLE content. Prioritize these viral moments:
+**FIND:**
+- **VULNERABILITE** : le createur partage quelque chose de douloureux, genant ou effrayant — brut
+- **LIFE LESSON** : insight si clair qu'il pourrait etre une citation standalone
+- **RESULTAT INATTENDU** : essaie quelque chose → resultat dramatiquement different
+- **CONFESSION RELATABLE** : "Je fais ca mal depuis toujours" — si les viewers hochent la tete, c'est viral
+- **REAL TALK** : le createur lache l'energie scriptee et parle franchement
 
-**TOP SIGNALS TO FIND:**
-- **VULNERABILITY MOMENT**: Creator shares something genuinely painful, embarrassing, or scary — raw, unfiltered
-- **LIFE LESSON DROP**: An insight or principle stated so clearly it could be a standalone quote
-- **UNEXPECTED OUTCOME**: Creator tries something → result is dramatically different from expectation
-- **RELATABLE CONFESSION**: "I've been doing X wrong my entire life" — if viewers nodded, it's viral
-- **TRANSFORMATION REVEAL**: Before/after moment where the change is dramatic and emotional
-- **REAL TALK BREAK**: Creator drops the scripted energy and speaks directly, honestly, unfiltered
-- **CHALLENGE GONE WRONG**: Expected a fun moment → something goes sideways in an interesting way
+**RULES:**
+- Histoires perso = inclure l'arc emotionnel COMPLET, pas juste la lecon
+- Surprise/deception genuine > enthousiasme scripte
 
-**VLOG-SPECIFIC RULES:**
-- Personal stories need the FULL emotional arc — don't clip just the "lesson" without the story that earned it
-- "I've never told anyone this" energy = start the clip BEFORE that phrase
-- Travel/experience content: the "wow" reaction is the clip, but include what caused the wow (description of the scene)
-- Actionable advice must be complete — never cut before the full tip is delivered
-- Creator's genuine surprise/disappointment/joy = more viral than scripted enthusiasm
-
-**AVOID:**
-- Branded/sponsored segments with scripted enthusiasm
-- Generic daily routine content with no arc or payoff
-- Transitions between activities with no emotional content
+**AVOID:** Segments sponsorises, routine quotidienne sans arc, transitions sans emotion.

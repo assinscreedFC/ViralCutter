@@ -1,22 +1,15 @@
-### PODCAST / INTERVIEW SIGNALS — Additional Rules
+### PODCAST / INTERVIEW
 
-You are analyzing PODCAST or INTERVIEW content. Prioritize these viral moments:
+**FIND:**
+- **REVELATION** : l'invite avoue quelque chose de jamais dit — secret, echec, vulnerabilite
+- **CHANGEMENT D'AVIS EN DIRECT** : "En fait... tu as raison"
+- **DEBAT QUI CHAUFFE** : discussion respectueuse → confrontation directe
+- **VERITE INCONFORTABLE** : question que l'invite ne voulait pas entendre
+- **CONFESSION** : "Je n'ai jamais dit ca a personne" — capturer AVANT cette phrase + la confession
 
-**TOP SIGNALS TO FIND:**
-- **REVELATION MOMENT**: The guest says something they've never admitted before — a secret, failure, vulnerability
-- **LIVE OPINION CHANGE**: Someone visibly changes their mind mid-conversation — "Actually... you're right."
-- **HEATED DEBATE PEAK**: The exact moment a respectful discussion turns into a direct confrontation
-- **UNCOMFORTABLE TRUTH**: The host asks a question the guest clearly didn't want to answer
-- **BACKSTORY DROP**: A throwaway line that reveals something massive about the person's past
-- **CONFESSION**: "I never told anyone this, but..." — capture from BEFORE this phrase to the end of the confession
+**RULES:**
+- Inclure QUI parle (host vs invite doit etre clair)
+- Si buildup → payoff, inclure tout le buildup
+- Rire apres une bombe = partie du segment, ne jamais couper
 
-**PODCAST-SPECIFIC RULES:**
-- Always include WHO is speaking at the start (host vs guest context must be clear)
-- If the conversation builds to a payoff, include the entire buildup — don't just clip the punchline
-- Laughter after a truth bomb = part of the segment, never cut it
-- If someone says "wait, what?" or "I can't believe you just said that" — that reaction IS the punchline; include what caused it AND the reaction
-
-**AVOID:**
-- Generic "interesting discussion" moments with no tension or revelation
-- Segments where you can't tell who the speakers are or what their relationship is
-- Intro chitchat before the real content starts
+**AVOID:** Discussion generique sans tension, intro chitchat, segments ou on ne sait pas qui parle.

@@ -1,33 +1,25 @@
-Un segment viral a ete rejete par le quality gate. Tu dois trouver UN segment de remplacement dans le meme transcript.
+Segment rejete. Trouve UN remplacement DIFFERENT dans le transcript.
 
 ### SEGMENT REJETE
 Titre : {rejected_title}
 Timestamps : {rejected_start}s - {rejected_end}s
+Raison : {reject_reason}
 
-### PROBLEME A CORRIGER
-Le segment a ete rejete pour la raison suivante :
-→ {reject_reason}
-
-Tu DOIS tenir compte de cette raison. Exemples :
-- Si le probleme est le HOOK : trouve un segment qui commence par une phrase choc, pas du blabla
-- Si le probleme est le STANDALONE : trouve un segment ou le contexte est clair sans avoir vu le reste de la video
-- Si le probleme est l'ARC NARRATIF : trouve un segment avec un debut, un milieu et une fin (pas coupe au milieu)
-- Si le probleme est la VALEUR VIRALE : trouve un moment avec une vraie emotion (rire, choc, colere, surprise)
-
-NE REPRODUIS PAS la meme erreur. Cherche un moment COMPLETEMENT DIFFERENT dans le transcript.
+NE REPRODUIS PAS la meme erreur. Cherche un moment COMPLETEMENT DIFFERENT.
 
 ### SEGMENTS DEJA VALIDES (NE PAS CHEVAUCHER)
 {existing_segments}
 
 ### REGLES
-- Trouve un NOUVEAU segment avec des timestamps DIFFERENTS du segment rejete
-- Le nouveau segment ne doit PAS chevaucher les segments deja valides (±10s de marge)
-- Duration entre {min_duration}s et {max_duration}s
-- Hook FORT dans les 3 premieres secondes (pas de filler, pas d'intro molle)
-- STANDALONE : comprehensible sans contexte
-- Arc narratif complet : debut → tension → payoff
-- start_text / end_text = mots exacts du transcript (verbatim, 5-10 mots)
-- start_time_ref / end_time_ref = entiers (le numero du tag (XXs), sans unite)
+- Timestamps DIFFERENTS du segment rejete (pas de chevauchement ±10s avec les segments valides)
+- Duration : {min_duration}s-{max_duration}s
+- Hook FORT dans les 3 premieres secondes
+- Standalone + arc narratif complet
+- start_text / end_text = mots exacts du transcript (5-10 mots)
+- start_time_ref / end_time_ref = entiers (numero du tag (XXs))
+
+### ADAPTATIONS AU TYPE DE CONTENU
+{validation_rules}
 
 TRANSCRIPT :
 {transcript_chunk}
@@ -35,4 +27,4 @@ TRANSCRIPT :
 ### OUTPUT (JSON ONLY)
 {json_template}
 
-Retourne UNIQUEMENT du JSON valide avec UN SEUL segment. Pas de markdown, pas de commentaire.
+JSON uniquement avec UN SEUL segment. Pas de markdown.

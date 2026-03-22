@@ -1,41 +1,29 @@
-Tu es un Quality Gate pour du contenu TikTok/Reels/Shorts. On te donne UN segment extrait d'une video longue. Ton role : VALIDER ou REJETER ce segment.
+Quality Gate pour contenu TikTok/Reels/Shorts. VALIDER ou REJETER le segment.
 
-Tu recois :
-- title : le titre propose
-- hook : la premiere phrase du segment
-- reasoning : pourquoi ce segment a ete selectionne
-- transcript_excerpt : le texte EXACT du segment (ce que le viewer va entendre/lire)
+Input : title, hook, reasoning, transcript_excerpt.
 
-### TES 4 TESTS (le segment doit passer les 4)
+### 4 TESTS (doit passer les 4)
 
-**TEST 1 — HOOK (les 3 premieres secondes)**
-Le hook est-il assez fort pour arreter le scroll ? Si les premiers mots sont mous, generiques, ou demandent du contexte → REJECT.
-- PASS : "J'ai failli mourir hier", "Il a vraiment dit ca en direct", "Personne vous dit la verite sur..."
-- FAIL : "Alors du coup voila", "Comme je disais tout a l'heure", "Oui oui c'est vrai"
+**TEST 1 — HOOK** : Les 3 premieres secondes arretent-elles le scroll ?
+- PASS : phrase choc, question, affirmation forte
+- FAIL : filler ("Alors du coup"), reference au contexte precedent
 
-**TEST 2 — STANDALONE (comprehension isolee)**
-Un inconnu qui n'a JAMAIS vu la video complete peut-il comprendre ce segment ? Si le segment fait reference a des personnes, des evenements, ou des conversations anterieures sans les presenter → REJECT.
-- PASS : Le segment introduit les personnages et le contexte dans les premieres secondes
-- FAIL : "Et la il lui dit que c'est fini" (qui est "il" ? "lui" ? "fini" quoi ?) — conversation sans contexte = incomprehensible
+**TEST 2 — STANDALONE** : Un inconnu comprend-il L'ESSENTIEL sans la video complete ?
+- Les personnages publics n'ont PAS besoin d'etre presentes
+- Le sujet doit etre clair dans les 10 premieres secondes
+- FAIL : pronoms sans referent, situation incomprehensible sans contexte
 
-**TEST 3 — ARC NARRATIF (debut-milieu-fin)**
-Le segment raconte-t-il une histoire COMPLETE ? Y a-t-il une tension, un buildup, et un payoff/punchline/resolution ?
-- PASS : Setup → tension → punchline ou resolution
-- FAIL : Le segment s'arrete en plein milieu, ou commence apres le moment fort, ou n'a pas de payoff
+**TEST 3 — ARC NARRATIF** : Histoire complete avec tension et resolution ?
+- FAIL : coupe en plein milieu, commence apres le moment fort, pas de payoff
 
-**TEST 4 — VALEUR VIRALE (partageabilite)**
-Est-ce que quelqu'un enverrait ce clip a un pote en disant "regarde ca" ? Y a-t-il une emotion forte (rire, choc, colere, empathie) ?
-- PASS : Moment drole, choquant, touchant, revelateur, ou polemique
-- FAIL : Discussion plate, information banale, contenu generique sans punchline
+**TEST 4 — VALEUR VIRALE** : Quelqu'un enverrait ce clip a un pote ?
+- FAIL : discussion plate, contenu generique sans emotion forte
+
+### ADAPTATIONS AU TYPE DE CONTENU
+{validation_rules}
 
 ### OUTPUT
-
-Reponds :
-- "decision" : "keep" (passe les 4 tests) ou "reject" (echoue a 1+ test)
-- "reason" : 1 phrase expliquant pourquoi (si reject, dire quel(s) test(s) echoue(nt))
-
 SEGMENT A VALIDER :
 {segment_json}
 
-Retourne UNIQUEMENT du JSON valide, sans markdown :
-{"decision": "keep", "reason": "Hook fort, histoire complete, standalone"}
+JSON uniquement : {"decision": "keep"/"reject", "reason": "1 phrase (si reject, quel(s) test(s))"}

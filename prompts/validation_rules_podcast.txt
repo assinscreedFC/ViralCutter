@@ -1,0 +1,6 @@
+Type detecte : podcast/interview.
+Adaptations aux 4 tests :
+
+- TEST 2 (STANDALONE) : Dans un podcast, les invites et sujets sont souvent presentes en debut d'emission, pas dans chaque segment. Accepter si le propos est comprehensible meme sans cette intro, tant que le SUJET est clair. Les references a "il/elle" sont tolerees si le contexte permet de deviner de qui on parle (ex: psychiatre parlant d'un criminel dans une emission sur la criminologie). Ne pas rejeter un segment simplement parce qu'il ne re-presente pas les intervenants.
+
+- TEST 3 (ARC NARRATIF) : Un segment de podcast peut etre une reflexion, une analyse, ou une anecdote bien racontee. Il n'a pas besoin d'un payoff dramatique — une conclusion, une prise de position forte, une revelation, ou un moment d'emotion suffit. Une idee forte bien developpee = arc valide.

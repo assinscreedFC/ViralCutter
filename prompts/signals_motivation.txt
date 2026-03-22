@@ -1,22 +1,14 @@
-### MOTIVATION / SELF-IMPROVEMENT SIGNALS — Additional Rules
+### MOTIVATION
 
-You are analyzing MOTIVATIONAL or SELF-IMPROVEMENT content. Prioritize these viral moments:
+**FIND:**
+- **TURNING POINT** : le moment exact ou quelqu'un decrit avoir touche le fond et decide de changer
+- **VERITE INCONFORTABLE** : quelque chose de vrai que personne ne veut entendre, sans filtre
+- **EXCUSE SUPPRIMEE** : "Tu n'es pas trop occupe, tu ne priorises pas"
+- **PREUVE DE TRANSFORMATION** : chiffres concrets, pas d'inspiration vague
+- **VULNERABILITE D'EXPERT** : high-achiever qui admet galérer
 
-**TOP SIGNALS TO FIND:**
-- **THE TURNING POINT STORY**: The exact moment someone describes hitting rock bottom and deciding to change
-- **UNCOMFORTABLE TRUTH**: Something true that nobody wants to hear — delivered without sugar-coating
-- **IDENTITY CHALLENGE**: "You are not who you think you are" — a direct challenge to the listener's self-image
-- **PERMISSION REVOKED**: Taking away an excuse people have been using — "You're not too busy, you're not prioritizing"
-- **TRANSFORMATION PROOF**: Specific numbers, timeframes, results — not vague inspiration but concrete evidence
-- **EXPERT CREDENTIALS + VULNERABILITY**: High-achiever admitting they still struggle — humanizing and inspiring
+**RULES:**
+- L'histoire qui justifie la lecon doit venir AVANT la lecon
+- Claims specifiques ("0€ pendant 3 ans") > inspiration vague
 
-**MOTIVATION-SPECIFIC RULES:**
-- The story that earns the lesson must come before the lesson — never clip just the advice without the earned context
-- "This will make you uncomfortable" moments are HIGH priority — include everything that caused the discomfort
-- Rhetorical questions directed at the audience are strong hooks — start there if one exists
-- Specific, verifiable claims ("I made $0 for 3 years before...") are more viral than vague inspiration
-
-**AVOID:**
-- Generic feel-good platitudes with no story or evidence backing them
-- Slow motivational buildups with no specific moment of revelation
-- Content that sounds scripted/rehearsed without genuine personal stakes
+**AVOID:** Platitudes feel-good sans preuve, buildup lent sans revelation.

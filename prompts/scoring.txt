@@ -1,52 +1,15 @@
-You are a Viral Content Analyst with deep expertise in social media performance. Your job is to score candidate video segments on their viral potential with rigorous, calibrated ratings.
+Score each segment on 5 dimensions (0-20 each, total 0-100):
 
-Score each segment on 5 dimensions (0–20 each, total = 0–100):
+1. **HOOK STRENGTH** (0-20) — First 5 seconds stop-scroll power. 18-20: instant hook. 0-5: generic/filler.
+2. **EMOTIONAL IMPACT** (0-20) — Triggers strong emotion (laugh, shock, anger, empathy). 18-20: visceral. 0-5: flat.
+3. **SHAREABILITY** (0-20) — Would someone send this saying "you HAVE to see this"? 18-20: hyper-shareable. 0-5: no send value.
+4. **SURPRISE FACTOR** (0-20) — Unexpected twist or reveal. 18-20: nobody saw it coming. 0-5: predictable.
+5. **STANDALONE VALUE** (0-20) — Understood without full video. 18-20: self-contained. 0-5: meaningless without context.
 
-1. **HOOK STRENGTH** (0–20)
-   How compelling are the first 5 seconds? Would someone stop scrolling?
-   - 18–20: Instant stop-scroll. Strong statement, shocking claim, direct conflict.
-   - 12–17: Interesting start, but requires 5+ seconds to hook.
-   - 6–11: Weak opener, relies on context the viewer doesn't have.
-   - 0–5: Generic, forgettable, or starts with filler.
-
-2. **EMOTIONAL IMPACT** (0–20)
-   Does it trigger a strong, clear emotion? Laughing, shock, anger, empathy, inspiration?
-   - 18–20: Visceral, undeniable emotional response. You feel it immediately.
-   - 12–17: Clear emotional tone, but moderate intensity.
-   - 6–11: Mild emotion, or emotion is unclear/mixed.
-   - 0–5: Flat, informational only, no emotional charge.
-
-3. **SHAREABILITY** (0–20)
-   Would someone send this to a specific person saying "you HAVE to see this"?
-   - 18–20: Hyper-specific shareability — perfect for a friend, a group, or a community.
-   - 12–17: Generally shareable, broad appeal.
-   - 6–11: Some shareability, but only in specific contexts.
-   - 0–5: Not shareable — too niche, too long, or no clear "send-to-someone" value.
-
-4. **SURPRISE FACTOR** (0–20)
-   Is there an unexpected twist, reveal, inversion, or "I didn't see that coming" moment?
-   - 18–20: Complete subversion of expectations. Nobody saw it coming.
-   - 12–17: Clear surprise element, moderately unexpected.
-   - 6–11: Mild surprise, somewhat predictable.
-   - 0–5: Predictable from the start, no surprising element.
-
-5. **STANDALONE VALUE** (0–20)
-   Can this be fully understood without watching the full video?
-   - 18–20: Completely self-contained. A stranger understands everything immediately.
-   - 12–17: Mostly clear, minor context gaps.
-   - 6–11: Requires some background knowledge to fully appreciate.
-   - 0–5: Confusing or meaningless without the full video context.
-
-CALIBRATION NOTES:
-- A score of 85+ = genuine viral candidate (top 5% of content)
-- A score of 70–84 = strong clip, likely to perform well
-- A score of 50–69 = decent clip, niche audience
-- Below 50 = skip it
-- DISTRIBUTION: if a segment is an outro (creator asks for likes/subscribe) or an ad/sponsor, penalize STANDALONE VALUE by -5 points minimum.
-- SKIP ADS: segments that are product placements or sponsor reads should score below 50.
+CALIBRATION: 85+ = viral (top 5%), 70-84 = strong, 50-69 = decent, <50 = skip.
+Outro/ads/sponsors = score below 50.
 
 SEGMENTS TO SCORE:
 {segments_json}
 
-OUTPUT JSON ONLY — no markdown, no explanation:
-{"scores": [{"index": 0, "total": 85, "hook": 18, "emotion": 17, "share": 16, "surprise": 15, "standalone": 19, "verdict": "One-line verdict explaining the score"}, ...]}
+JSON ONLY: {"scores": [{"index": 0, "total": 85, "hook": 18, "emotion": 17, "share": 16, "surprise": 15, "standalone": 19, "verdict": "One-line verdict"}, ...]}

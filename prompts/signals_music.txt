@@ -1,22 +1,14 @@
-### MUSIC SIGNALS — Additional Rules
+### MUSIC
 
-You are analyzing MUSIC-related content. Prioritize these viral moments:
+**FIND:**
+- **FIRST LISTEN REACTION** : moment ou quelqu'un entend un truc qui le scotche
+- **VOCAL PEAK** : performance technique extraordinaire — buildup + pic + reaction
+- **BREAKDOWN EMOTIONNEL** : la musique fait pleurer ou exploser de joie
+- **SKILL REVEAL** : sous-estime un artiste → l'entend → revirement immediat
+- **CONFESSION ARTISTE** : verite sur une chanson, un beef, un processus creatif
 
-**TOP SIGNALS TO FIND:**
-- **FIRST LISTEN REACTION**: The exact moment a person hears something that blows their mind — capture the change in expression described in the speech
-- **VOCAL PEAK MOMENT**: A performer hits a note or does something technically extraordinary — capture buildup + peak + reaction
-- **EMOTIONAL BREAKDOWN**: Music moves someone to genuine tears or overwhelming joy
-- **UNEXPECTED SKILL REVEAL**: Someone dismisses an artist → hears them → immediate opinion reversal
-- **MUSICAL DEBATE CLIMAX**: "This is better than X" debate reaches its most heated point
-- **ARTIST CONFESSION**: Artist reveals truth about a song, a feud, or their creative process nobody knew
+**RULES:**
+- Si la reaction EST le contenu, capturer 2-3s avant le stimulus
+- Opinions musicales passionnees (meme fausses) = tres partageable
 
-**MUSIC-SPECIFIC RULES:**
-- If the reaction IS the content, capture 2-3 seconds before the stimulus so the transformation is visible
-- "I wasn't expecting THAT" moments require everything from the expectation through the surprise
-- Musical opinions shared passionately (even wrong ones) = highly shareable — include the full argument
-- Artist backstory revelations must include context (who they are) at the start of the clip
-
-**AVOID:**
-- Neutral music review with no strong opinion or reaction
-- Technical analysis without emotional component
-- Long intros before the actual music discussion
+**AVOID:** Review neutre sans opinion forte, analyse technique sans emotion.

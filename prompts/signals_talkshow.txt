@@ -1,22 +1,14 @@
-### TALK SHOW / PANEL SIGNALS — Additional Rules
+### TALK SHOW / PANEL
 
-You are analyzing TALK SHOW or PANEL content. Prioritize these viral moments:
+**FIND:**
+- **ERUPTION** : tout le monde parle en meme temps parce qu'un paneliste a dit un truc explosif
+- **ROAST** : observation devastatrice (mais drole) sur un invite
+- **DESACCORD EN DIRECT** : deux experts se contredisent frontalement
+- **CANDEUR INATTENDUE** : personnalite publique qui dit quelque chose d'inhabituellement honnete
+- **GOTCHA** : l'animateur sort une preuve qui contredit directement ce que l'invite vient de dire
 
-**TOP SIGNALS TO FIND:**
-- **PANEL ERUPTION**: The moment everyone talks at once because one panelist said something explosive
-- **GUEST ROAST**: A host or panelist delivers a devastating (but funny) observation about the guest
-- **LIVE DISAGREEMENT**: Two experts directly contradicting each other's claims in real time
-- **AUDIENCE REACTION MOMENT**: Something that clearly shocks or delights a live audience
-- **UNEXPECTED CANDOR**: A public figure saying something unusually honest on camera
-- **GOTCHA MOMENT**: Host presents evidence or fact that directly contradicts what guest just said
+**RULES:**
+- L'interjection de l'animateur est souvent le hook — commencer par la si ca lance le moment viral
+- Rire/stupeur du public = partie du clip, ne jamais couper avant
 
-**TALKSHOW-SPECIFIC RULES:**
-- The host's interjection or follow-up question is often the hook — include it as the start if it sets the viral moment
-- Audience laughter/gasps are part of the clip — never cut before they fully land
-- If multiple guests react differently to the same statement, capture all reactions
-- "You can't say that on TV" energy = top priority segment
-
-**AVOID:**
-- Scripted promotional segments or ads within the show
-- Transitions between topics with no payoff
-- Applause segments with no preceding content
+**AVOID:** Segments promo/pub dans l'emission, transitions sans payoff.

@@ -1,50 +1,24 @@
-Tu ecris des captions TikTok pour un public francophone. Ton objectif : que la personne qui lit la caption regarde la video.
-
-Ton = un pote qui envoie un clip dans un groupe WhatsApp. Pas un journaliste, pas un community manager.
+Ecris des captions TikTok en francais. Ton = un pote qui envoie un clip sur WhatsApp. PAS un journaliste.
 
 Type de contenu : {content_type}
 
-### EXEMPLES DE BONNES CAPTIONS
+### EXEMPLES
+- "Jpp il a vraiment dit ca devant tout le monde #fyp #pourtoi #malaise"
+- "Cette phrase m'a mis une claque attendez la fin #fyp #pourtoi #podcast"
+- "Le clutch le plus sale de sa carriere #fyp #pourtoi #gaming"
 
-Comedy :
-  "Il pensait etre drole mais personne rigole mdrrr 💀 #fyp #pourtoi #essayedenepasrire"
-  "Le moment ou il craque a 4h du mat c'est nous tous #fyp #pourtoi #4hdumatin"
-  "Jpp il a vraiment dit ca devant tout le monde #fyp #pourtoi #malaise"
-
-Podcast / interview :
-  "Cette phrase m'a mis une claque attendez la fin #fyp #pourtoi #podcast"
-  "Il a lache ca comme si c'etait rien wsh #fyp #pourtoi #verite"
-
-Gaming :
-  "Le clutch le plus sale de sa carriere #fyp #pourtoi #gaming"
-  "Il rage quit en direct c'est trop bon #fyp #pourtoi #ragequit"
-
-Motivation :
-  "Ca fait mal mais c'est la verite #fyp #pourtoi #mindset"
-
-Anime / manga :
-  "Ce plot twist m'a acheve frr #fyp #pourtoi #anime"
-
-### CE QU'IL NE FAUT JAMAIS ECRIRE
-Tes captions ne doivent JAMAIS ressembler a ca :
-- "La deception est palpable" → journalisme
-- "Entre rires et emotions" → roman
-- "Face aux critiques, le createur defend son travail" → communique de presse
-- "Un moment touchant et authentique" → description Wikipedia
-Si ta caption ressemble a un article ou une description formelle → recommence.
+JAMAIS de ton formel : "La deception est palpable", "Un moment touchant et authentique" → recommence.
 
 ### REGLES
-- TOUJOURS en francais, meme si le transcript est en anglais
-- #fyp et #pourtoi = les 2 PREMIERS hashtags, toujours presents
-- 1-3 hashtags specifiques au contenu (sans accents : e pas e, a pas a, c pas c)
-- 80-200 caracteres total (caption + hashtags)
-- Base-toi sur le transcript_excerpt, PAS sur le title (il peut etre faux)
-- Si le transcript est vague, ecris un teaser/question — n'invente rien
-- Max 1-2 emojis si le contenu est drole (💀 😭 sont ok). Sinon, zero emoji.
-- Tu DOIS generer UNE caption par segment (chaque index). Aucun oubli.
+- Francais uniquement
+- #fyp et #pourtoi = 2 premiers hashtags, toujours
+- 1-3 hashtags specifiques (sans accents dans les hashtags)
+- 80-200 caracteres total
+- Base-toi sur le transcript_excerpt, PAS sur le title
+- Max 1-2 emojis si contenu drole (💀 😭). Sinon zero.
+- UNE caption par segment. Aucun oubli.
 
 SEGMENTS:
 {segments_json}
 
-Retourne UNIQUEMENT du JSON valide, sans markdown :
-{"captions": [{"index": 0, "caption": "texte #fyp #pourtoi #tag"}, ...]}
+JSON uniquement : {"captions": [{"index": 0, "caption": "texte #fyp #pourtoi #tag"}, ...]}

@@ -1,22 +1,14 @@
-### COOKING / FOOD SIGNALS — Additional Rules
+### COOKING / FOOD
 
-You are analyzing COOKING or FOOD content. Prioritize these viral moments:
+**FIND:**
+- **REACTION AU GOUT** : premiere bouchee → incredulite, joie, ou degout
+- **TECHNIQUE REVELATION** : "Vous avez toujours fait ca mal" — astuce qui change tout
+- **EPIC FAIL** : catastrophe en cuisine + reaction genuine
+- **PRIX CHOC** : ingredient ou plat a un prix qui choque
+- **EXPERT VS AMATEUR** : le gap entre l'attente et la realite
 
-**TOP SIGNALS TO FIND:**
-- **TASTE REACTION**: The first genuine reaction to tasting something — disbelief, delight, disgust
-- **TECHNIQUE REVELATION**: "You've been doing this wrong your whole life" — simple trick that changes everything
-- **EPIC FAIL MOMENT**: Something goes spectacularly wrong during cooking and the reaction is genuine
-- **PRICE SHOCK**: Food or ingredient reveal that creates genuine surprise ("this costs HOW MUCH?")
-- **SECRET INGREDIENT DROP**: The unexpected addition that makes everything make sense
-- **EXPERT VS AMATEUR**: Chef reacts to how regular people do something — the gap between expectation and reality
+**RULES:**
+- Reaction au gout : inclure la bouchee + 3-5s de traitement AVANT la reaction verbale
+- Technique : inclure l'explication COMPLETE du truc
 
-**COOKING-SPECIFIC RULES:**
-- Taste reactions: include the bite AND the 3-5 seconds of processing before the verbal reaction — the face tells the story
-- Technique reveals must be COMPLETE — don't cut before the person finishes explaining the trick
-- "I can't believe I've never done this before" = high-virality, include the full realization moment
-- Comparison segments ("this vs that") must show both sides and the final verdict
-
-**AVOID:**
-- Routine recipe recitation with no surprise or reaction
-- Long prep segments with no payoff moment
-- Technical cooking steps without personality or commentary
+**AVOID:** Recitation de recette sans surprise, preparation longue sans payoff.

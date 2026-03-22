@@ -1,22 +1,14 @@
-### NEWS / CURRENT EVENTS SIGNALS — Additional Rules
+### NEWS / ACTUALITES
 
-You are analyzing NEWS or CURRENT EVENTS commentary. Prioritize these viral moments:
+**FIND:**
+- **HOT TAKE** : position forte sur un sujet clivant — les gens partagent pour approuver OU contester
+- **CONTRADICTION EN DIRECT** : quelqu'un pris a contredire ses propres propos — inclure les DEUX
+- **REVELATION** : fait qui change immediatement le narratif
+- **EXPLOSION EMOTIONNELLE** : commentateur qui perd son calme
+- **ELEPHANT DANS LA PIECE** : "Personne n'en parle mais..." — ce que tout le monde pense
 
-**TOP SIGNALS TO FIND:**
-- **HOT TAKE WITH STAKES**: A commentator takes a clear, strong position on a divisive issue — people will share to agree OR disagree
-- **LIVE CONTRADICTION**: Someone is caught contradicting their own past statement — include BOTH the original claim and the contradiction
-- **BREAKING REVELATION**: A fact or development announced that immediately changes the narrative
-- **EMOTIONAL OUTBURST**: A commentator or figure breaks composure — genuine frustration, disbelief, or anger
-- **"NOBODY IS SAYING THIS"**: Commentator points out something obvious that hasn't been said — the elephant in the room
-- **PREDICTION WITH PROOF**: "I said this would happen 6 months ago" — and they did
+**RULES:**
+- Les clips les plus forts sont specifiques ("voila exactement ce qui s'est passe"), pas vagues
+- Inclure assez de contexte pour que le clip vieillisse bien
 
-**NEWS-SPECIFIC RULES:**
-- Political or social content: the strongest clips are specific ("here's exactly what happened") not vague
-- If a person's reaction to news is the content, briefly describe the news they're reacting to first
-- "This is the most important thing happening right now and nobody is covering it" energy = top priority
-- Include enough context that the clip ages well — avoid clips that only make sense in the current week
-
-**AVOID:**
-- Balanced "on the other hand" segments with no clear position or tension
-- Recap segments without a strong editorial take
-- Content relying entirely on visuals/footage not present in the transcript
+**AVOID:** Segments "d'un autre cote" sans position claire, recaps sans editorial.

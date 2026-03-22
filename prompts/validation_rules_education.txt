@@ -1,0 +1,6 @@
+Type detecte : education/vulgarisation.
+Adaptations aux 4 tests :
+
+- TEST 2 (STANDALONE) : Le contenu educatif peut supposer un niveau de connaissance generale du sujet. Accepter si le segment apporte une idee ou un fait comprehensible sans contexte specialise. Les termes techniques sont toleres s'ils sont expliques dans le segment ou s'ils font partie de la culture generale.
+
+- TEST 3 (ARC NARRATIF) : Une explication fascinante, un fait surprenant bien amene, une demonstration, ou un raisonnement qui mene a une conclusion = arc narratif valide. Pas besoin d'un payoff dramatique — la decouverte ou la comprehension est le payoff.

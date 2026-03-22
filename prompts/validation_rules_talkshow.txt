@@ -1,0 +1,6 @@
+Type detecte : talkshow/plateau.
+Adaptations aux 4 tests :
+
+- TEST 2 (STANDALONE) : Les personnages de talkshow sont souvent presentes par un bandeau ou en debut d'emission. Accepter les segments ou le contexte est implicite mais clair (debat, reaction, temoignage). Les references conversationnelles ("comme vous le disiez") sont tolerees si le propos reste comprehensible. Un echange entre invites n'a pas besoin de re-presenter chaque participant.
+
+- TEST 3 (ARC NARRATIF) : Un echange vif, un moment fort d'emotion, ou un clash sur un plateau TV est un arc en soi. Pas besoin de structure classique setup-tension-payoff — la dynamique du debat ou du temoignage suffit.

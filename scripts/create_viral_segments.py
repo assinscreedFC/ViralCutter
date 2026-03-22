@@ -384,6 +384,21 @@ def load_content_signals(content_type: str | list[str]) -> str:
     return ("\n\n" + "\n\n".join(sections)) if sections else ""
 
 
+def load_validation_rules(content_type: list[str] | None) -> str:
+    """Charge les regles de validation specifiques au type de contenu (supporte multi-label)."""
+    if not content_type:
+        return ""
+    types = [content_type] if isinstance(content_type, str) else content_type
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    sections = []
+    for ct in types:
+        rules_path = os.path.join(base_dir, "prompts", f"validation_rules_{ct}.txt")
+        if os.path.exists(rules_path):
+            with open(rules_path, 'r', encoding='utf-8') as f:
+                sections.append(f.read())
+    return ("\n\n".join(sections)) if sections else ""
+
+
 def score_segments(segments: list[dict], ai_mode: str, api_key: str | None = None, model_name: str | None = None, min_score: int = 70) -> list[dict]:
     """Passe de scoring : note chaque segment sur 5 dimensions (0-100). Filtre sous min_score."""
     if not segments:
@@ -455,7 +470,7 @@ def _call_ai(prompt: str, ai_mode: str, api_key: str | None = None, model_name: 
     return None
 
 
-def _validate_one_segment(seg: dict, transcript_text: str, validation_template: str, ai_mode: str, api_key: str | None, model_name: str | None) -> dict:
+def _validate_one_segment(seg: dict, transcript_text: str, validation_template: str, ai_mode: str, api_key: str | None, model_name: str | None, validation_rules: str = "") -> dict:
     """Valide UN segment via le LLM. Retourne {"decision": "keep"/"reject", "reason": "..."}."""
     excerpt = _extract_excerpt(transcript_text, seg.get("start_time", 0), seg.get("end_time"), max_chars=1200)
     segment_data = {
@@ -465,6 +480,7 @@ def _validate_one_segment(seg: dict, transcript_text: str, validation_template: 
         "transcript_excerpt": excerpt
     }
     prompt = validation_template.replace("{segment_json}", json.dumps(segment_data, ensure_ascii=False))
+    prompt = prompt.replace("{validation_rules}", validation_rules)
 
     response = _call_ai(prompt, ai_mode, api_key, model_name)
     if not response:
@@ -482,7 +498,8 @@ def _find_replacement_segment(
     transcript_text: str, transcript_segments: list[dict],
     min_duration: int, max_duration: int,
     replacement_template: str, json_template: str,
-    ai_mode: str, api_key: str | None, model_name: str | None
+    ai_mode: str, api_key: str | None, model_name: str | None,
+    validation_rules: str = ""
 ) -> dict | None:
     """Demande au LLM de trouver un segment de remplacement. Retourne le segment aligné ou None."""
     existing_info = json.dumps([
@@ -498,6 +515,7 @@ def _find_replacement_segment(
         .replace("{existing_segments}", existing_info)\
         .replace("{min_duration}", str(min_duration))\
         .replace("{max_duration}", str(max_duration))\
+        .replace("{validation_rules}", validation_rules)\
         .replace("{transcript_chunk}", transcript_text)\
         .replace("{json_template}", json_template)
 
@@ -525,7 +543,8 @@ MAX_VALIDATION_RETRIES = 5  # Max tentatives de remplacement par segment rejeté
 def validate_segments(
     segments: list[dict], transcript_text: str, transcript_segments: list[dict],
     min_duration: int, max_duration: int, json_template: str,
-    ai_mode: str, api_key: str | None = None, model_name: str | None = None
+    ai_mode: str, api_key: str | None = None, model_name: str | None = None,
+    content_type: list[str] | None = None
 ) -> list[dict]:
     """Valide chaque segment un par un. Si rejeté, cherche un remplacement (max MAX_VALIDATION_RETRIES fois)."""
     if not segments:
@@ -547,6 +566,8 @@ def validate_segments(
         with open(replacement_path, 'r', encoding='utf-8') as f:
             replacement_template = f.read()
 
+    validation_rules = load_validation_rules(content_type)
+
     validated = []
     total_rejected = 0
     total_replaced = 0
@@ -562,7 +583,7 @@ def validate_segments(
                 label += f" (remplacement #{retries})"
 
             logger.info(f"{label} Test: '{candidate.get('title', '')}'")
-            result = _validate_one_segment(candidate, transcript_text, validation_template, ai_mode, api_key, model_name)
+            result = _validate_one_segment(candidate, transcript_text, validation_template, ai_mode, api_key, model_name, validation_rules)
 
             if result["decision"] == "keep":
                 logger.info(f"{label} KEEP — {result['reason']}")
@@ -590,7 +611,8 @@ def validate_segments(
                 transcript_text, transcript_segments,
                 min_duration, max_duration,
                 replacement_template, json_template,
-                ai_mode, api_key, model_name
+                ai_mode, api_key, model_name,
+                validation_rules=validation_rules
             )
 
             if not new_seg:
@@ -1423,7 +1445,8 @@ Rules: integers only for times. Duration (end - start) must be ''' + str(tempo_m
         result["segments"] = validate_segments(
             result["segments"], content, transcript_segments,
             tempo_minimo, tempo_maximo, json_template,
-            ai_mode, api_key, model_name
+            ai_mode, api_key, model_name,
+            content_type=content_type
         )
 
     # --- Passe de scoring (optionnelle) ---

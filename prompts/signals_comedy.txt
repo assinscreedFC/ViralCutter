@@ -1,24 +1,15 @@
-### COMEDY SIGNALS — Additional Rules
+### COMEDY
 
-You are analyzing COMEDY content. Prioritize these viral moments:
+**FIND:**
+- **SETUP → PUNCHLINE** : arc complet + rire/reaction apres
+- **ABSURDITE CROISSANTE** : situation de plus en plus ridicule — capturer toute l'escalade
+- **AUTO-DERISION** : l'intervenant se detruit avec humour
+- **SWERVE** : l'histoire part dans une direction puis pivote brutalement
+- **DEADPAN** : livraison serieuse de quelque chose d'outrageant
 
-**TOP SIGNALS TO FIND:**
-- **PERFECT SETUP→PUNCHLINE**: The full arc from setup through punchline AND the laughter/reaction after
-- **ESCALATING ABSURDITY**: A situation gets increasingly ridiculous — capture the full escalation, not just the peak
-- **SELF-DEPRECATING BOMB**: Speaker roasts themselves in a way that's both brutally honest and hilarious
-- **CALLBACK**: A joke that references something said earlier in the video — include BOTH the setup and callback
-- **UNEXPECTED SWERVE**: The story clearly goes one direction, then violently pivots to something absurd
-- **DEADPAN DROP**: A completely serious delivery of something outrageous — the funnier because it's so flat
+**RULES:**
+- JAMAIS couper avant que le rire finisse — le rire EST la punchline
+- JAMAIS commencer a la punchline — inclure le setup qui rend ca drole
+- Silence gene apres une blague qui a marche = inclure
 
-**COMEDY-SPECIFIC RULES — CRITICAL:**
-- NEVER cut before the audience/co-host laugh finishes — laughter IS the punchline
-- NEVER start at the punchline — always include the setup that makes it funny
-- If there's a slow burn buildup (30s of setup for a 2s punchline), include the FULL setup
-- Awkward silence after a joke that landed = include it; it amplifies the comedy
-- "Wait, did he just say that?" moments require the statement AND the reaction
-- The funniest moment is often the REACTION, not the action — always capture the reaction
-
-**AVOID:**
-- Isolated punchlines with no setup context
-- Forced/scripted laugh moments with no genuine energy
-- Long tangents that don't build to anything
+**AVOID:** Punchlines isolees sans setup, humour force sans energie genuine.
