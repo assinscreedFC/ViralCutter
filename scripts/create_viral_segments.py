@@ -1121,7 +1121,7 @@ def process_segments(raw_segments: list[dict], transcript_segments: list[dict], 
     return final_result
 
 
-def create(num_segments: int | None, viral_mode: bool, themes: str | None, tempo_minimo: int, tempo_maximo: int, ai_mode: str = "manual", api_key: str | None = None, project_folder: str = "tmp", chunk_size_arg: int | str | None = None, model_name_arg: str | None = None, content_type: list[str] | None = None, enable_scoring: bool = True, min_score: int = 70, enable_validation: bool = True) -> dict:
+def create(num_segments: int | None, viral_mode: bool, themes: str | None, tempo_minimo: int, tempo_maximo: int, ai_mode: str = "manual", api_key: str | None = None, project_folder: str = "tmp", chunk_size_arg: int | str | None = None, model_name_arg: str | None = None, content_type: list[str] | None = None, enable_scoring: bool = True, min_score: int = 70, enable_validation: bool = True, enable_parts: bool = False) -> dict:
     quantidade_de_virals = num_segments if num_segments is not None else 3
 
     # 1. Load Transcript
@@ -1197,6 +1197,22 @@ def create(num_segments: int | None, viral_mode: bool, themes: str | None, tempo
 
     content_signals = load_content_signals(content_type)
 
+    # Build duration/parts rule for prompt
+    if enable_parts:
+        duration_and_parts_rule = (
+            f"- **FAVOR SHORT CLIPS**: Prefer segments of {tempo_minimo}s-80s. Short, punchy clips perform best.\n"
+            f"- **BUT KEEP GREAT STORIES WHOLE**: If a story is compelling throughout and would lose impact if truncated, "
+            f"you MAY select it at full length (no upper limit). Long passages will be automatically split into a multi-part series. "
+            f"Score long passages based on sustained quality — every minute must be engaging."
+        )
+    else:
+        duration_and_parts_rule = (
+            f"- Duration: {tempo_minimo}s-{tempo_maximo}s. Target: 60-80s.\n"
+            f"- **MULTI-PART**: If story > {tempo_maximo}s → split into consecutive parts (40-70s each). "
+            f"Each part needs its own hook + cliffhanger (last part gets payoff). "
+            f"Title: \"Base — Partie 1/N\". Parts must be consecutive. Standalone: part_number=1, total_parts=1."
+        )
+
     system_prompt_template = ""
     if os.path.exists(prompt_path):
         with open(prompt_path, 'r', encoding='utf-8') as f:
@@ -1222,7 +1238,11 @@ OUTPUT JSON ONLY:
 
     json_template = '''{"segments": [{"start_text": "exact 5-10 first words at segment start", "end_text": "exact 5-10 last words at segment end (DIFFERENT from start_text)", "start_time_ref": 0, "end_time_ref": 0, "title": "viral title in transcript language", "reasoning": "why this is viral (1 sentence)", "score": 75}]}
 
-Rules: integers only for times. Duration (end - start) must be ''' + str(tempo_minimo) + '''-''' + str(tempo_maximo) + '''s. Target 60-80s. Score: 90+ = exceptional (max 1), 75-89 = strong, 60-74 = decent, <60 = skip.'''
+'''
+    if enable_parts:
+        json_template += f'''Rules: integers only for times. Favor {tempo_minimo}-80s clips. Longer OK if story is compelling throughout. Score: 90+ = exceptional (max 1), 75-89 = strong, 60-74 = decent, <60 = skip.'''
+    else:
+        json_template += f'''Rules: integers only for times. Duration (end - start) must be {tempo_minimo}-{tempo_maximo}s. Target 60-80s. Score: 90+ = exceptional (max 1), 75-89 = strong, 60-74 = decent, <60 = skip.'''
 
     # Chunking
     chunk_size = int(current_chunk_size)
@@ -1281,6 +1301,7 @@ Rules: integers only for times. Duration (end - start) must be ''' + str(tempo_m
                 virality_instruction=virality_instruction,
                 min_duration=tempo_minimo,
                 max_duration=tempo_maximo,
+                duration_and_parts_rule=duration_and_parts_rule,
                 transcript_chunk=chunk,
                 json_template=json_template,
                 amount=chunk_amount
@@ -1291,6 +1312,7 @@ Rules: integers only for times. Duration (end - start) must be ''' + str(tempo_m
             prompt = prompt.replace("{virality_instruction}", virality_instruction)
             prompt = prompt.replace("{min_duration}", str(tempo_minimo))
             prompt = prompt.replace("{max_duration}", str(tempo_maximo))
+            prompt = prompt.replace("{duration_and_parts_rule}", duration_and_parts_rule)
             prompt = prompt.replace("{transcript_chunk}", chunk)
             prompt = prompt.replace("{json_template}", json_template)
             prompt = prompt.replace("{amount}", str(chunk_amount))
@@ -1304,7 +1326,8 @@ Rules: integers only for times. Duration (end - start) must be ''' + str(tempo_m
         full_prompt = full_prompt.replace("{virality_instruction}", virality_instruction)
         full_prompt = full_prompt.replace("{min_duration}", str(tempo_minimo))
         full_prompt = full_prompt.replace("{max_duration}", str(tempo_maximo))
-        full_prompt = full_prompt.replace("{transcript_chunk}", content) 
+        full_prompt = full_prompt.replace("{duration_and_parts_rule}", duration_and_parts_rule)
+        full_prompt = full_prompt.replace("{transcript_chunk}", content)
         full_prompt = full_prompt.replace("{json_template}", json_template)
         full_prompt = full_prompt.replace("{amount}", str(quantidade_de_virals))
         

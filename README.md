@@ -1,12 +1,9 @@
 # ViralCutter
-[![Discord](https://dcbadge.limes.pink/api/server/tAdPHFAbud)](https://discord.gg/tAdPHFAbud)<br>
-
-**Alternativa open-source 100% gratuita, local e ilimitada ao Opus Clip**  
+**Alternativa open-source 100% gratuita, local e ilimitada ao Opus Clip**
 Transforme vídeos longos do YouTube em shorts virais otimizados para TikTok, Instagram Reels e YouTube Shorts – com IA de ponta, legendas dinâmicas, *face tracking* preciso e tradução automática. Tudo rodando na sua máquina.
 
-[![Stars](https://img.shields.io/github/stars/RafaelGodoyEbert/ViralCutter?style=social)](https://github.com/RafaelGodoyEbert/ViralCutter/stargazers)
-[![Forks](https://img.shields.io/github/forks/RafaelGodoyEbert/ViralCutter?style=social)](https://github.com/RafaelGodoyEbert/ViralCutter/network/members)
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1UZKzeqjIeEyvq9nPx7s_4mU6xlkZQn_R?usp=sharing)
+[![Stars](https://img.shields.io/github/stars/assinscreedFC/ViralCutter?style=social)](https://github.com/assinscreedFC/ViralCutter/stargazers)
+[![Forks](https://img.shields.io/github/forks/assinscreedFC/ViralCutter?style=social)](https://github.com/assinscreedFC/ViralCutter/network/members)
 
 [English](README_en.md) • [Português](README.md)
 
@@ -123,7 +120,6 @@ Para rodar o ViralCutter em um computador novo, você precisa instalar os seguin
 ## Contribua!
 
 O ViralCutter é mantido pela comunidade. Junte-se a nós para democratizar a criação de conteúdo com IA!
--   **Discord**: [AI Hub Brasil](https://discord.gg/aihubbrasil)
 -   **Github**: Dê uma ⭐ estrela se este projeto te ajudou!
 
 **Versão Atual**: 0.8v Alpha

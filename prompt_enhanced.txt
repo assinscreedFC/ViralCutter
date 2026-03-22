@@ -8,8 +8,7 @@ Transcript with time tags like (12s). Tags = timestamp of preceding text. Durati
 2. **STANDALONE**: A stranger with zero context can understand the segment. No undefined pronouns or references.
 3. **NARRATIVE ARC**: Start (hook) → Middle (tension) → End (punchline/resolution). NEVER cut mid-sentence.
 4. **SUBTITLE**: Always "fr" (French subtitles for French audience).
-5. **DURATION**: Between {min_duration}s and {max_duration}s.
-6. **MULTI-PART**: If story > {max_duration}s → split into 2-3 shorter parts (40-70s each preferred). Each part needs its own hook + cliffhanger. Title: "Base — Partie 1/N". Parts must be consecutive. Standalone: part_number=1, total_parts=1.
+{duration_and_parts_rule}
 
 {zoom_rules}
 

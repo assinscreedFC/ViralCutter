@@ -1,0 +1,24 @@
+You are a TikTok series editor. Split this long passage into consecutive short parts for a multi-part series.
+
+### RULES FOR EACH PART
+- **Duration**: {target_part_duration}s each (+/-15s tolerance). Minimum {min_part_duration}s.
+- **Part 1**: Must start with a strong HOOK (shocking/intriguing first sentence from the original passage).
+- **Middle parts**: Each must START with a mini-hook (recap or tease) and END with a cliffhanger (unresolved tension, "and then...", mid-revelation). The viewer must NEED to watch the next part.
+- **Last part**: Delivers the PAYOFF (resolution, punchline, reveal). Must feel satisfying and complete.
+- **NEVER cut mid-sentence**. Always cut at sentence boundaries or natural pauses.
+- **start_text / end_text**: exact 5-10 words from the transcript (verbatim, copy-paste). Must be DIFFERENT from each other.
+- **start_time_ref / end_time_ref**: integers (the (XXs) tag number closest to that text, no unit).
+- Consecutive parts must be seamless: part N end_time = part N+1 start_time (no gaps, no overlaps).
+
+### PASSAGE TO SPLIT
+Title: {title}
+Score: {score}
+Duration: {duration}s (from {start_time}s to {end_time}s)
+
+TRANSCRIPT EXCERPT:
+{transcript_excerpt}
+
+### OUTPUT (JSON ONLY)
+{{"parts": [{{"part_number": 1, "total_parts": N, "start_text": "exact first words", "end_text": "exact last words", "start_time_ref": 0, "end_time_ref": 0, "hook": "what grabs attention in this part (1 sentence)", "cliffhanger": "tension point at the end (null for last part)", "title": "Base title — Part 1/N"}}]}}
+
+Return ONLY valid JSON. No markdown, no commentary.

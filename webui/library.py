@@ -305,6 +305,12 @@ def generate_project_gallery(project_path_name: str | None, is_full_path: bool =
                 bg, fg = badge_colors.get(video_type_label, ("#374151", "#f9fafb"))
                 badge_html = f'<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:{bg};color:{fg};font-family:sans-serif;letter-spacing:0.5px;">{video_type_label.upper()}</span>'
 
+            # Part badge (multi-part series)
+            part_num = seg.get("part_number", 1)
+            total_parts = seg.get("total_parts", 1)
+            if total_parts > 1:
+                badge_html += f' <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:#6d28d9;color:#ede9fe;font-family:sans-serif;letter-spacing:0.5px;">PART {part_num}/{total_parts}</span>'
+
             card_html = f"""
             <div style="display: flex; flex-direction: column; background: transparent; overflow: visible;">
 

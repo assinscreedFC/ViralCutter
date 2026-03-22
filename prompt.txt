@@ -22,12 +22,11 @@ Transcript with time tags like (12s). Tags = timestamp of preceding text. Durati
 → REJECTED. Outro, no story, no emotion.
 
 ### TECHNICAL RULES
-- Duration: {min_duration}s-{max_duration}s. Target: 60-80s.
+{duration_and_parts_rule}
 - start_text / end_text = exact words from transcript (verbatim, 5-10 words). Must differ.
 - start_time_ref / end_time_ref = integers (the (XXs) tag number, no unit).
 - subtitle_language: always "fr".
 - Speaker names: only names that directly address a participant.
-- **MULTI-PART**: If story > {max_duration}s → split into consecutive parts (40-70s each). Each part needs its own hook + cliffhanger (last part gets payoff). Title: "Base — Partie 1/N". Parts must be consecutive. Standalone: part_number=1, total_parts=1.
 - Output title, hook, reasoning in the SAME LANGUAGE as the transcript.
 
 ### YOUR TASK
