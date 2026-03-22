@@ -300,6 +300,9 @@ SETTINGS_KEYS = [
     "validate_clips", "hook_detection", "min_hook_score", "blur_detection", "max_blur_ratio",
     "pacing_analysis", "composite_scoring",
     "remove_fillers", "auto_thumbnail", "auto_zoom", "speed_ramp", "speed_up_factor",
+    "progress_bar", "bar_color", "bar_position", "ab_variants", "num_variants",
+    "layout_template", "auto_broll", "transitions", "output_resolution",
+    "emoji_overlay", "color_grade", "grade_intensity",
     "remove_silence", "silence_threshold", "silence_min_duration", "silence_max_keep",
     "enable_parts", "target_part_duration",
     "post_youtube", "post_tiktok", "youtube_privacy", "post_interval_minutes", "post_first_time",
@@ -336,6 +339,9 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
                      validate_clips, hook_detection, min_hook_score, blur_detection, max_blur_ratio,
                      pacing_analysis, composite_scoring,
                      remove_fillers, auto_thumbnail, auto_zoom, speed_ramp, speed_up_factor,
+                     progress_bar, bar_color, bar_position, ab_variants, num_variants,
+                     layout_template, auto_broll, transitions, output_resolution,
+                     emoji_overlay, color_grade, grade_intensity,
                      remove_silence, silence_threshold, silence_min_duration, silence_max_keep,
                      enable_parts, target_part_duration,
                      post_youtube, post_tiktok, youtube_privacy, post_interval_minutes, post_first_time):
@@ -494,6 +500,28 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
     if speed_ramp:
         cmd.append("--speed-ramp")
         if speed_up_factor is not None: cmd.extend(["--speed-up-factor", str(speed_up_factor)])
+
+    # Phase 4 post-production
+    if progress_bar:
+        cmd.append("--progress-bar")
+        if bar_color: cmd.extend(["--bar-color", str(bar_color)])
+        if bar_position: cmd.extend(["--bar-position", str(bar_position)])
+    if ab_variants:
+        cmd.append("--ab-variants")
+        if num_variants is not None: cmd.extend(["--num-variants", str(int(num_variants))])
+    if layout_template:
+        cmd.extend(["--layout", str(layout_template)])
+    if auto_broll:
+        cmd.append("--auto-broll")
+    if transitions:
+        cmd.extend(["--transitions", str(transitions)])
+    if output_resolution and output_resolution != "1080p":
+        cmd.extend(["--output-resolution", str(output_resolution)])
+    if emoji_overlay:
+        cmd.append("--emoji-overlay")
+    if color_grade:
+        cmd.extend(["--color-grade", str(color_grade)])
+        if grade_intensity is not None: cmd.extend(["--grade-intensity", str(grade_intensity)])
 
     # Jump Cuts (Silence Removal)
     if remove_silence:
@@ -1027,6 +1055,66 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                      )
                  speed_ramp_input.change(lambda x: gr.update(visible=x), inputs=speed_ramp_input, outputs=speed_options_row)
 
+             with gr.Accordion(i18n("Overlays & Effects"), open=False):
+                 progress_bar_input = gr.Checkbox(
+                     label=i18n("Progress Bar"), value=False,
+                     info=i18n("Add animated progress bar to keep viewers watching")
+                 )
+                 with gr.Row(visible=False) as bar_options_row:
+                     bar_color_input = gr.Dropdown(
+                         choices=["white", "red", "yellow", "green", "blue", "purple"],
+                         label=i18n("Bar Color"), value="white"
+                     )
+                     bar_position_input = gr.Dropdown(
+                         choices=["top", "bottom"],
+                         label=i18n("Bar Position"), value="top"
+                     )
+                 progress_bar_input.change(lambda x: gr.update(visible=x), inputs=progress_bar_input, outputs=bar_options_row)
+
+                 emoji_overlay_input = gr.Checkbox(
+                     label=i18n("Emoji Overlay"), value=False,
+                     info=i18n("Add emoji reactions at key moments (requires LLM emoji_cues)")
+                 )
+                 color_grade_input = gr.Dropdown(
+                     choices=[None, "cinematic", "vintage", "warm", "cool", "high_contrast"],
+                     label=i18n("Color Grading"), value=None,
+                     info=i18n("Apply color grading LUT preset")
+                 )
+                 with gr.Row(visible=False) as grade_options_row:
+                     grade_intensity_input = gr.Slider(
+                         label=i18n("Grading Intensity"), minimum=0.0, maximum=1.0, value=0.7, step=0.05
+                     )
+                 color_grade_input.change(lambda x: gr.update(visible=x is not None), inputs=color_grade_input, outputs=grade_options_row)
+
+                 transitions_input = gr.Dropdown(
+                     choices=[None, "fade", "wipeleft", "wiperight", "slideup", "slidedown"],
+                     label=i18n("Transitions"), value=None,
+                     info=i18n("Transition effect between multi-part clips")
+                 )
+                 output_resolution_input = gr.Dropdown(
+                     choices=["720p", "1080p", "4k"],
+                     label=i18n("Output Resolution"), value="1080p"
+                 )
+                 ab_variants_input = gr.Checkbox(
+                     label=i18n("A/B Caption Variants"), value=False,
+                     info=i18n("Generate multiple caption variants for A/B testing")
+                 )
+                 with gr.Row(visible=False) as ab_options_row:
+                     num_variants_input = gr.Slider(
+                         label=i18n("Number of Variants"), minimum=2, maximum=5, value=3, step=1
+                     )
+                 ab_variants_input.change(lambda x: gr.update(visible=x), inputs=ab_variants_input, outputs=ab_options_row)
+
+                 layout_template_input = gr.Dropdown(
+                     choices=[None, "pip", "lower-third"],
+                     label=i18n("Layout Template"), value=None,
+                     info=i18n("Apply visual layout (PiP, lower third)")
+                 )
+                 auto_broll_input = gr.Checkbox(
+                     label=i18n("Auto B-roll (Pexels)"), value=False,
+                     info=i18n("Auto-insert stock footage at static moments (requires Pexels API key)")
+                 )
+
              with gr.Accordion(i18n("Jump Cuts (Silence Removal)"), open=False):
                  remove_silence_input = gr.Checkbox(
                      label=i18n("Remove Silences"), value=False,
@@ -1144,6 +1232,10 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  pacing_analysis_input, composite_scoring_input,
                  # Content Enhancement (Phase 3)
                  remove_fillers_input, auto_thumbnail_input, auto_zoom_input, speed_ramp_input, speed_up_factor_input,
+                 # Overlays & Effects (Phase 4)
+                 progress_bar_input, bar_color_input, bar_position_input, ab_variants_input, num_variants_input,
+                 layout_template_input, auto_broll_input, transitions_input, output_resolution_input,
+                 emoji_overlay_input, color_grade_input, grade_intensity_input,
                  # Jump Cuts (Silence Removal)
                  remove_silence_input, silence_threshold_input, silence_min_duration_input, silence_max_keep_input,
                  # Parts Mode
@@ -1176,6 +1268,10 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  pacing_analysis_input, composite_scoring_input,
                  # Content Enhancement (Phase 3)
                  remove_fillers_input, auto_thumbnail_input, auto_zoom_input, speed_ramp_input, speed_up_factor_input,
+                 # Overlays & Effects (Phase 4)
+                 progress_bar_input, bar_color_input, bar_position_input, ab_variants_input, num_variants_input,
+                 layout_template_input, auto_broll_input, transitions_input, output_resolution_input,
+                 emoji_overlay_input, color_grade_input, grade_intensity_input,
                  remove_silence_input, silence_threshold_input, silence_min_duration_input, silence_max_keep_input,
                  # Parts Mode
                  enable_parts_input, target_part_duration_input,

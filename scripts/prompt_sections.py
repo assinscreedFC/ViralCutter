@@ -136,6 +136,31 @@ If no important pauses exist, set `"jumpcut_hints": []`.
 """
 
 
+# =============================================================================
+# SECTION : A/B CAPTION VARIANTS
+# =============================================================================
+AB_VARIANTS_RULES = '''
+Generate {num_variants} caption variants for each segment. Each variant should have a different hook angle:
+- Variant 1: Direct/informative hook
+- Variant 2: Curiosity/question-based hook
+- Variant 3: Emotional/shock-based hook
+
+Add a "caption_variants" field to each segment: ["variant1 text", "variant2 text", "variant3 text"]
+'''
+
+# =============================================================================
+# SECTION : EMOJI REACTIONS
+# =============================================================================
+EMOJI_RULES = '''
+For each segment, suggest 2-3 emoji reactions at key moments. Add an "emoji_cues" field:
+[{{"emoji": "fire", "timestamp": <seconds>, "duration": 1.5, "position": "top-right"}},
+ {{"emoji": "skull", "timestamp": <seconds>, "duration": 1.0, "position": "bottom-left"}}]
+
+Available emojis: fire, skull, crying_laughing, exploding_head, eyes, 100, clap, mind_blown
+Place emojis at: punchlines, reveals, reactions, impressive moments.
+'''
+
+
 def build_enhanced_prompt(
     enable_zoom: bool = False,
     enable_power_words: bool = False,

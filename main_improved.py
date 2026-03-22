@@ -183,6 +183,19 @@ def main() -> None:
     parser.add_argument("--auto-zoom", action="store_true", help="Apply dynamic zoom on LLM-generated zoom_cues")
     parser.add_argument("--speed-ramp", action="store_true", help="Speed up dead moments, slow down highlights")
     parser.add_argument("--speed-up-factor", type=float, default=1.5, help="Speed factor for dead moments (default: 1.5)")
+    # --- Post-production (Phase 4) ---
+    parser.add_argument("--progress-bar", action="store_true", help="Add animated progress bar overlay")
+    parser.add_argument("--bar-color", type=str, default="white", help="Progress bar color (default: white)")
+    parser.add_argument("--bar-position", type=str, default="top", choices=["top", "bottom"], help="Progress bar position")
+    parser.add_argument("--ab-variants", action="store_true", help="Generate A/B caption variants")
+    parser.add_argument("--num-variants", type=int, default=3, help="Number of caption variants (default: 3)")
+    parser.add_argument("--layout", type=str, default=None, choices=["pip", "lower-third"], help="Visual layout template")
+    parser.add_argument("--auto-broll", action="store_true", help="Auto-insert B-roll from Pexels")
+    parser.add_argument("--transitions", type=str, default=None, choices=["fade", "wipeleft", "wiperight", "slideup", "slidedown"], help="Transition type between clips")
+    parser.add_argument("--output-resolution", type=str, default="1080p", choices=["720p", "1080p", "4k"], help="Output resolution (default: 1080p)")
+    parser.add_argument("--emoji-overlay", action="store_true", help="Add emoji overlays at key moments")
+    parser.add_argument("--color-grade", type=str, default=None, help="Color grading LUT preset (cinematic, vintage, warm, cool, high_contrast)")
+    parser.add_argument("--grade-intensity", type=float, default=0.7, help="Color grading intensity 0-1 (default: 0.7)")
 
     parser.add_argument("--enable-parts", action="store_true", help="Enable parts mode: long passages auto-split into multi-part series")
     parser.add_argument("--target-part-duration", type=int, default=55, help="Target duration for each part after splitting (seconds, default: 55)")
@@ -1052,6 +1065,48 @@ def main() -> None:
                     thumb_path = video_path.rsplit(".", 1)[0] + "_thumbnail.jpg"
                     save_thumbnail(frame, thumb_path)
                     logger.info(f"Thumbnail saved: {os.path.basename(thumb_path)}")
+
+        # 9c. Post-production overlays
+        if workflow_choice not in ("3",):
+            import glob as glob_mod
+
+            # Determine the folder with final videos
+            final_folder = os.path.join(project_folder, "burned_sub")
+            if not os.path.isdir(final_folder):
+                final_folder = os.path.join(project_folder, "cuts")
+            video_files = sorted(glob_mod.glob(os.path.join(final_folder, "*.mp4")))
+
+            for video_path in video_files:
+                temp_out = video_path + ".tmp.mp4"
+
+                # Color grading
+                if args.color_grade:
+                    from scripts.color_grading import apply_lut
+                    if apply_lut(video_path, temp_out, lut_name=args.color_grade, intensity=args.grade_intensity):
+                        os.replace(temp_out, video_path)
+                        logger.info(f"Color grading applied: {os.path.basename(video_path)}")
+
+                # Progress bar
+                if args.progress_bar:
+                    from scripts.overlay_effects import add_progress_bar
+                    if add_progress_bar(video_path, temp_out, bar_color=args.bar_color, bar_position=args.bar_position):
+                        os.replace(temp_out, video_path)
+                        logger.info(f"Progress bar added: {os.path.basename(video_path)}")
+
+                # Emoji overlay
+                if args.emoji_overlay and viral_segments and "segments" in viral_segments:
+                    from scripts.overlay_effects import add_emoji_overlay
+                    idx = video_files.index(video_path)
+                    if idx < len(viral_segments["segments"]):
+                        emoji_cues = viral_segments["segments"][idx].get("emoji_cues", [])
+                        if emoji_cues:
+                            if add_emoji_overlay(video_path, temp_out, emoji_cues):
+                                os.replace(temp_out, video_path)
+                                logger.info(f"Emoji overlay added: {os.path.basename(video_path)}")
+
+                # Clean up temp if it still exists
+                if os.path.exists(temp_out):
+                    os.remove(temp_out)
 
         # Organização Final (Opcional, pois agora já está tudo em project_folder)
         # organize_output.organize(project_folder=project_folder)
