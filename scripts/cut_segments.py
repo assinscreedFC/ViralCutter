@@ -56,12 +56,13 @@ def cut(
                 logger.warning(f"Failed to preload whisperx words: {e}")
 
         # Preload scenes once before the loop (avoid N+1 re-analysis)
+        # Use range-based detection: only scan ±10s around each segment boundary
         cached_scenes = None
         if scene_detection:
             try:
-                from scripts.scene_detector import detect_scenes
-                logger.info("Pre-computing scene detection (one-time)...")
-                cached_scenes = detect_scenes(input_file)
+                from scripts.scene_detector import detect_scenes_for_segments
+                logger.info("Pre-computing scene detection (segment ranges only)...")
+                cached_scenes = detect_scenes_for_segments(input_file, segments)
                 logger.info(f"  Found {len(cached_scenes)} scenes.")
             except Exception as e:
                 logger.warning(f"Scene detection preload failed: {e}")

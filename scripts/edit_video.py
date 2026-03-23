@@ -603,8 +603,9 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
     last_success_frame = -1000
     max_frames_without_detection = int(3.0 * fps) # 3 seconds timeout
 
-    transition_duration = 4 # Smooth transition over 4 frames (almost continuous)
-    transition_frames = []
+    smooth_bbox_centers = None   # list of (cx_float, cy_float) — EMA state per face
+    EMA_ALPHA = 0.18             # Smoothing factor: 0.15=very smooth, 0.25=responsive
+    NOISE_THRESHOLD = 30         # pixels — ignore sensor noise below this
 
     # Current state of face mode (1 or 2)
     # If auto, we decide per detection interval
@@ -658,18 +659,22 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
         if not ret or frame is None:
             break
 
-        if frame_index >= next_detection_frame and len(transition_frames) == 0:
+        if frame_index >= next_detection_frame:
             # Detect faces on downscaled frame for performance
             small_if, scale_if = downscale_for_analysis(frame, max_width=480)
             faces = detect_faces_insightface(small_if)
             # Scale bounding boxes and landmarks back to original resolution
-            if faces and scale_if > 1.0:
+            if faces:
                 for f in faces:
-                    f['bbox'] = f['bbox'] * scale_if
-                    if 'landmark_3d_68' in f and f['landmark_3d_68'] is not None:
-                        f['landmark_3d_68'][:, :2] *= scale_if
-                    if 'landmark_2d_106' in f and f['landmark_2d_106'] is not None:
-                        f['landmark_2d_106'][:, :2] *= scale_if
+                    if scale_if > 1.0:
+                        f['bbox'] = (f['bbox'] * scale_if).astype(int)
+                        if 'landmark_3d_68' in f and f['landmark_3d_68'] is not None:
+                            f['landmark_3d_68'][:, :2] *= scale_if
+                        if 'landmark_2d_106' in f and f['landmark_2d_106'] is not None:
+                            f['landmark_2d_106'][:, :2] *= scale_if
+                    else:
+                        # InsightFace returns float32 bbox — ensure int for array slicing
+                        f['bbox'] = f['bbox'].astype(int)
             if faces:
                 scores = [f"{f.get('det_score',0):.2f}" for f in faces]
                 logger.debug(f"DEBUG: Frame {frame_index} | Raw Faces: {len(faces)} | Scores: {scores}")
@@ -748,8 +753,8 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
                 valid_faces = [] # CAUTION: Must clear strict backup too!
                 # FORCE RESET HISTORY so it doesn't "stick" to the last face found
                 last_detected_faces = None
-                transition_frames = []
-                faces_activity_state = [] 
+                smooth_bbox_centers = None  # Reset EMA state too
+                faces_activity_state = []
                 zoom_ema_bbox = None # Reset smoothing too
             # ---------------------------
 
@@ -1013,59 +1018,40 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
                      detections = []
 
             if detections:
-                # --- STABILIZATION (DEAD ZONE) ---
-                # Check if movement is small enough to ignore
-                if last_detected_faces is not None and len(last_detected_faces) == len(detections):
-                    is_stable = True
-                    for i in range(len(detections)):
-                        old_c = get_center_bbox(last_detected_faces[i])
-                        new_c = get_center_bbox(detections[i])
-                        dist = np.sqrt((old_c[0]-new_c[0])**2 + (old_c[1]-new_c[1])**2)
-                        
-                        # Threshold: dead_zone variable (pixels)
-                        # Reduced jitter for talking heads
-                        if dist > dead_zone: 
-                            is_stable = False
-                            break
-                    
-                    if is_stable:
-                        # Keep old position to prevent "shaky cam"
-                        detections = last_detected_faces
-                        # Clear transition logic (snap) or keep it empty
-                        transition_frames = []
-                # ---------------------------------
+                # --- EMA SMOOTHING ---
+                new_centers = [get_center_bbox(d) for d in detections]
 
-                if last_frame_face_positions is not None and len(last_frame_face_positions) == len(detections):
-                    # Only transition if we decided to MOVE (i.e., not stable)
-                    forced_transition = True
-                    if last_detected_faces is not None and len(detections) == len(last_detected_faces):
-                         # Manual check to avoid numpy ambiguity
-                         arrays_equal = True
-                         for i in range(len(detections)):
-                             if not np.array_equal(detections[i], last_detected_faces[i]):
-                                 arrays_equal = False
-                                 break
-                         if arrays_equal:
-                             forced_transition = False
+                if smooth_bbox_centers is not None and len(smooth_bbox_centers) == len(new_centers):
+                    smoothed = []
+                    for (old_cx, old_cy), (new_cx, new_cy) in zip(smooth_bbox_centers, new_centers):
+                        dist = ((old_cx - new_cx)**2 + (old_cy - new_cy)**2) ** 0.5
+                        if dist < NOISE_THRESHOLD:
+                            smoothed.append((old_cx, old_cy))
+                        else:
+                            s_cx = EMA_ALPHA * new_cx + (1 - EMA_ALPHA) * old_cx
+                            s_cy = EMA_ALPHA * new_cy + (1 - EMA_ALPHA) * old_cy
+                            smoothed.append((s_cx, s_cy))
+                    smooth_bbox_centers = smoothed
 
-                    if not transition_frames and forced_transition:
-                        # Transition
-                        start_faces = np.array(last_frame_face_positions)
-                        end_faces = np.array(detections)
-                        
-                        steps = transition_duration
-                        transition_frames = []
-                        for s in range(steps):
-                            t = (s + 1) / steps
-                            interp = (1 - t) * start_faces + t * end_faces
-                            transition_frames.append(interp.astype(int).tolist())
-                        
-                        # Optimization removed to avoid "Ambiguous truth value of array" error
-                        # if detections == last_detected_faces: caused crash
-                    
+                    # Rebuild bboxes with smoothed centers, keep original dimensions
+                    smoothed_detections = []
+                    for i, det in enumerate(detections):
+                        if isinstance(det, np.ndarray):
+                            x1, y1, x2, y2 = det[:4]
+                        else:
+                            x1, y1, x2, y2 = det[0], det[1], det[2], det[3]
+                        w_half = (x2 - x1) / 2
+                        h_half = (y2 - y1) / 2
+                        cx, cy = smooth_bbox_centers[i]
+                        smoothed_detections.append(np.array([
+                            int(cx - w_half), int(cy - h_half),
+                            int(cx + w_half), int(cy + h_half)
+                        ]))
+                    detections = smoothed_detections
                 else:
-                    # Reset transition if face count changed or first detect
-                    transition_frames = []
+                    # First detection or face count changed: init EMA state
+                    smooth_bbox_centers = [(float(c[0]), float(c[1])) for c in new_centers]
+
                 last_detected_faces = detections
                 last_success_frame = frame_index
             else:
@@ -1092,10 +1078,7 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
             
             next_detection_frame = frame_index + step
 
-        if len(transition_frames) > 0:
-            current_faces = transition_frames[0]
-            transition_frames = transition_frames[1:]
-        elif last_detected_faces is not None and (frame_index - last_success_frame) <= max_frames_without_detection:
+        if last_detected_faces is not None and (frame_index - last_success_frame) <= max_frames_without_detection:
             current_faces = last_detected_faces
         else:
             # Fallback for this frame
@@ -1225,7 +1208,6 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
     # Save timeline JSON
     timeline_file = output_file.replace(".mp4", "_timeline.json")
     try:
-        import json
         with open(timeline_file, "w") as f:
             json.dump(compressed_timeline, f)
         logger.info(f"Timeline saved: {timeline_file}")
@@ -1478,7 +1460,6 @@ def edit(project_folder: str = "tmp", face_model: str = "insightface", face_mode
     # Save Face Modes to JSON for subtitle usage
     modes_file = os.path.join(project_folder, "face_modes.json")
     try:
-        import json
         with open(modes_file, "w") as f:
             json.dump(face_modes_log, f)
         logger.info(f"Detect Stats saved: {modes_file}")

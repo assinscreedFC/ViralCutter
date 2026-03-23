@@ -12,6 +12,14 @@ POWER_WORD_COLORS = {
     "danger": "&H4444FF&",       # Rouge (#FF4444 -> BGR)
 }
 
+# Animation templates — ASS override tags for highlighted word
+ANIMATION_TEMPLATES = {
+    "none": "",
+    "pop": "\\fscx115\\fscy115\\t(100,250,\\fscx100\\fscy100)",
+    "bounce": "\\fscx120\\fscy120\\t(0,100,\\fscx95\\fscy95)\\t(100,200,\\fscx100\\fscy100)",
+    "fade_pop": "\\alpha&HFF&\\fscx110\\fscy110\\t(0,100,\\alpha&H00&)\\t(100,200,\\fscx100\\fscy100)",
+}
+
 def format_time_ass(time_seconds):
     hours = int(time_seconds // 3600)
     minutes = int((time_seconds % 3600) // 60)
@@ -25,7 +33,7 @@ def generate_ass_from_file(input_path, output_path, project_folder,
                            words_per_block, gap_limit, mode, vertical_position, alignment,
                            font, outline_color, shadow_color, bold, italic, underline,
                             strikeout, border_style, outline_thickness, shadow_size, uppercase,
-                            face_modes=None, remove_punctuation=True, power_words_map=None):
+                            face_modes=None, remove_punctuation=True, power_words_map=None, animation="pop"):
     """
     Generates a single ASS file from a JSON input.
     """
@@ -184,7 +192,8 @@ def generate_ass_from_file(input_path, output_path, project_folder,
                                     pw_color = POWER_WORD_COLORS.get(category)
                             if k == j:
                                 color = pw_color or highlight_color
-                                line += f"{{\\fs{highlight_size}\\c{color}}}{word} "
+                                anim_tags = ANIMATION_TEMPLATES.get(animation, "")
+                                line += f"{{{anim_tags}\\fs{highlight_size}\\c{color}}}{word} "
                             else:
                                 color = pw_color or base_color
                                 line += f"{{\\fs{base_size}\\c{color}}}{word} "
@@ -193,8 +202,10 @@ def generate_ass_from_file(input_path, output_path, project_folder,
                     elif mode == "no_highlight" or mode == "sem_higlight": 
                         line = " ".join(word_data['word'] for word_data in block).strip()
 
-                    elif mode == "palavra_por_palavra": 
-                        line = block[j]['word'].strip()
+                    elif mode == "palavra_por_palavra":
+                        anim_tags = ANIMATION_TEMPLATES.get(animation, "")
+                        word_text = block[j]['word'].strip()
+                        line = f"{{{anim_tags}\\fs{highlight_size}\\c{highlight_color}}}{word_text}"
                     
                     else:
                         # Fallback / No Highlight
@@ -236,7 +247,7 @@ def generate_ass_from_file(input_path, output_path, project_folder,
         logger.debug(f"[DEBUG] Wrote {total_lines_written} lines to {output_path}")
 
 
-def adjust(base_color, base_size, highlight_size, highlight_color, words_per_block, gap_limit, mode, vertical_position, alignment, font, outline_color, shadow_color, bold, italic, underline, strikeout, border_style, outline_thickness, shadow_size, uppercase=False, project_folder="tmp", **kwargs):
+def adjust(base_color, base_size, highlight_size, highlight_color, words_per_block, gap_limit, mode, vertical_position, alignment, font, outline_color, shadow_color, bold, italic, underline, strikeout, border_style, outline_thickness, shadow_size, uppercase=False, project_folder="tmp", animation="pop", **kwargs):
     
     # Input and Output Directories
     input_dir = os.path.join(project_folder, "subs")
@@ -293,7 +304,7 @@ def adjust(base_color, base_size, highlight_size, highlight_color, words_per_blo
                            words_per_block, gap_limit, mode, vertical_position, alignment,
                            font, outline_color, shadow_color, bold, italic, underline,
                            strikeout, border_style, outline_thickness, shadow_size, uppercase,
-                           face_modes, remove_punctuation, power_words_map)
+                           face_modes, remove_punctuation, power_words_map, animation)
 
             logger.info(f"Processed file: {filename} -> {output_filename}")
 

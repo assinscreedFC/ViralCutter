@@ -409,7 +409,8 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
             "outline_color": convert_color_to_ass(outline_color), "outline_thickness": outline_thickness, "shadow_color": convert_color_to_ass(shadow_color),
             "shadow_size": shadow_size, "vertical_position": effective_vertical_pos, "alignment": alignment, "bold": 1 if is_bold else 0, "italic": 1 if is_italic else 0,
             "underline": 1 if under else 0, "strikeout": 1 if strike else 0, "border_style": border_s, "words_per_block": int(w_block), "gap_limit": gap,
-            "mode": mode, "highlight_size": int(h_size), "remove_punctuation": remove_punc
+            "mode": mode, "highlight_size": int(h_size), "remove_punctuation": remove_punc,
+            "animation": "pop"
         }
         subtitle_config["uppercase"] = 1 if is_uppercase else 0
 

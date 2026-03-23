@@ -61,7 +61,7 @@ def add_progress_bar(
     y_expr = "0" if bar_position == "top" else f"ih-{bar_height}"
     drawbox = (
         f"drawbox=x=0:y={y_expr}:"
-        f"w='iw*t/{duration}':h={bar_height}:"
+        f"w=iw*t/{duration}:h={bar_height}:"
         f"color={bar_color}@0.8:t=fill"
     )
 

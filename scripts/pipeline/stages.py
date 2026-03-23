@@ -66,6 +66,7 @@ def get_subtitle_config(config_path=None) -> dict:
         "shadow_size": 2,
         "shadow_color": f"&H{shadow_color_transparency}{COLORS['black']}&",
         "remove_punctuation": True,
+        "animation": "pop",
     }
 
     if config_path and os.path.exists(config_path):
@@ -73,6 +74,7 @@ def get_subtitle_config(config_path=None) -> dict:
             with open(config_path, 'r', encoding='utf-8') as f:
                 loaded_config = json.load(f)
                 config.update(loaded_config)
+                config["animation"] = config.get("animation", "pop")
                 logger.info(i18n("Loaded subtitle config from {}").format(config_path))
         except Exception as e:
             logger.error(i18n("Error loading subtitle config: {}. Using defaults.").format(e))
@@ -308,71 +310,178 @@ def stage_cut(ctx: PipelineContext) -> None:
 # Stage 5: Filler Removal + Speed Ramp
 # ---------------------------------------------------------------------------
 
+def _process_filler_single(video_path: str, json_path: str) -> None:
+    """Remove fillers from a single video (thread-safe)."""
+    from scripts.filler_removal import detect_fillers, remove_fillers_from_video, update_subtitle_json
+    from scripts.smart_trim import load_whisperx_words
+
+    filename = os.path.basename(video_path)
+    words = load_whisperx_words(json_path) if os.path.exists(json_path) else []
+    if words:
+        fillers = detect_fillers(words)
+        if fillers:
+            logger.info(f"Found {len(fillers)} fillers in {filename}")
+            temp_out = video_path + ".tmp.mp4"
+            if remove_fillers_from_video(video_path, temp_out, fillers):
+                os.replace(temp_out, video_path)
+                update_subtitle_json(json_path, fillers, json_path)
+            elif os.path.exists(temp_out):
+                os.remove(temp_out)
+
+
+def _process_speed_ramp_single(
+    video_path: str, speed_up_factor: float, zoom_cues: list,
+) -> None:
+    """Apply speed ramp to a single video (thread-safe)."""
+    from scripts.speed_ramp import apply_speed_ramp
+    from scripts.remove_silence import detect_silences
+
+    silences = detect_silences(video_path, noise_db=-35, min_duration=0.8)
+    highlights = None
+    if zoom_cues:
+        highlights = [{"timestamp": z.get("timestamp", 0), "duration": z.get("duration", 1.5)} for z in zoom_cues]
+    if silences:
+        temp_out = video_path + ".tmp.mp4"
+        if apply_speed_ramp(video_path, temp_out, silences, speed_up_factor=speed_up_factor, highlights=highlights):
+            os.replace(temp_out, video_path)
+            logger.info(f"Speed ramp applied to {os.path.basename(video_path)}")
+        elif os.path.exists(temp_out):
+            os.remove(temp_out)
+
+
 def stage_filler_speed(ctx: PipelineContext) -> None:
-    """Remove filler words and apply speed ramp."""
+    """Remove filler words and apply speed ramp (parallelized per segment)."""
     args = ctx.args
     if ctx.workflow_choice == "3":
         return
 
-    # Filler word removal
-    if args.remove_fillers:
-        import glob as glob_mod
-        from scripts.filler_removal import detect_fillers, remove_fillers_from_video, update_subtitle_json
-        from scripts.smart_trim import load_whisperx_words
+    import glob as glob_mod
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        cuts_folder = os.path.join(ctx.project_folder, "cuts")
-        subs_folder = os.path.join(ctx.project_folder, "subs")
-        video_files = sorted(glob_mod.glob(os.path.join(cuts_folder, "*_original_scale.mp4")))
+    cuts_folder = os.path.join(ctx.project_folder, "cuts")
+    subs_folder = os.path.join(ctx.project_folder, "subs")
+    video_files = sorted(glob_mod.glob(os.path.join(cuts_folder, "*_original_scale.mp4")))
+    max_workers = min(4, len(video_files))
 
-        for video_path in video_files:
-            filename = os.path.basename(video_path)
-            base_name = filename.replace("_original_scale.mp4", "")
-            json_path = os.path.join(subs_folder, f"{base_name}_processed.json")
-            words = load_whisperx_words(json_path) if os.path.exists(json_path) else []
-            if words:
-                fillers = detect_fillers(words)
-                if fillers:
-                    logger.info(f"Found {len(fillers)} fillers in {filename}")
-                    temp_out = video_path + ".tmp.mp4"
-                    if remove_fillers_from_video(video_path, temp_out, fillers):
-                        os.replace(temp_out, video_path)
-                        update_subtitle_json(json_path, fillers, json_path)
-                    elif os.path.exists(temp_out):
-                        os.remove(temp_out)
+    # Filler word removal (parallel)
+    if args.remove_fillers and video_files:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            for video_path in video_files:
+                filename = os.path.basename(video_path)
+                base_name = filename.replace("_original_scale.mp4", "")
+                json_path = os.path.join(subs_folder, f"{base_name}_processed.json")
+                futures.append(executor.submit(_process_filler_single, video_path, json_path))
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    logger.error(f"Filler removal failed: {e}")
 
-    # Speed ramp
-    if args.speed_ramp:
-        import glob as glob_mod
-        from scripts.speed_ramp import apply_speed_ramp
-        from scripts.remove_silence import detect_silences
-
-        cuts_folder = os.path.join(ctx.project_folder, "cuts")
-        video_files = sorted(glob_mod.glob(os.path.join(cuts_folder, "*_original_scale.mp4")))
-
+    # Speed ramp (parallel, after fillers complete)
+    if args.speed_ramp and video_files:
         segments_path = os.path.join(ctx.project_folder, "viral_segments.txt")
-        all_zoom_cues = []
+        all_zoom_cues: list[list] = []
         if os.path.exists(segments_path):
             with open(segments_path, "r", encoding="utf-8") as f:
                 vs = json.load(f)
             all_zoom_cues = [s.get("zoom_cues", []) for s in vs.get("segments", [])]
 
-        for idx, video_path in enumerate(video_files):
-            silences = detect_silences(video_path, noise_db=-35, min_duration=0.8)
-            highlights = None
-            if idx < len(all_zoom_cues) and all_zoom_cues[idx]:
-                highlights = [{"timestamp": z.get("timestamp", 0), "duration": z.get("duration", 1.5)} for z in all_zoom_cues[idx]]
-            if silences:
-                temp_out = video_path + ".tmp.mp4"
-                if apply_speed_ramp(video_path, temp_out, silences, speed_up_factor=args.speed_up_factor, highlights=highlights):
-                    os.replace(temp_out, video_path)
-                    logger.info(f"Speed ramp applied to {os.path.basename(video_path)}")
-                elif os.path.exists(temp_out):
-                    os.remove(temp_out)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            for idx, video_path in enumerate(video_files):
+                zoom_cues = all_zoom_cues[idx] if idx < len(all_zoom_cues) else []
+                futures.append(executor.submit(
+                    _process_speed_ramp_single, video_path, args.speed_up_factor, zoom_cues,
+                ))
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    logger.error(f"Speed ramp failed: {e}")
 
 
 # ---------------------------------------------------------------------------
 # Stage 6: Clip Quality Validation
 # ---------------------------------------------------------------------------
+
+def _analyze_single_segment(
+    video_path: str, json_path: str, args, engagement_model: str | None = None,
+) -> dict:
+    """Analyze a single segment's quality metrics (thread-safe, no shared state)."""
+    from scripts.smart_trim import load_whisperx_words
+    filename = os.path.basename(video_path)
+    result: dict = {}
+
+    words = load_whisperx_words(json_path) if os.path.exists(json_path) else []
+
+    if args.validate_clips:
+        from scripts.clip_validator import validate_clip_boundaries
+        boundary = validate_clip_boundaries(video_path, noise_db=args.silence_threshold)
+        result["speech_ratio"] = boundary["speech_ratio"]
+        result["starts_on_silence"] = boundary["starts_on_silence"]
+        result["ends_on_silence"] = boundary["ends_on_silence"]
+        if boundary["starts_on_silence"]:
+            logger.warning(f"  {filename}: starts on silence!")
+        logger.info(f"  {filename}: speech_ratio={boundary['speech_ratio']}")
+
+    if args.hook_detection:
+        from scripts.hook_scorer import score_hook
+        hook = score_hook(video_path, words)
+        result["hook_score"] = hook["hook_score"]
+        result["hook_audio_energy"] = hook["audio_energy"]
+        logger.info(f"  {filename}: hook_score={hook['hook_score']}")
+
+    if args.blur_detection:
+        from scripts.blur_detector import detect_blur_frames
+        blur = detect_blur_frames(video_path)
+        result["blur_ratio"] = blur["blur_ratio"]
+        result["avg_sharpness"] = blur["avg_sharpness"]
+        if blur["blur_ratio"] > args.max_blur_ratio:
+            logger.warning(f"  {filename}: high blur ratio {blur['blur_ratio']:.2f}")
+        logger.info(f"  {filename}: blur_ratio={blur['blur_ratio']}, sharpness={blur['avg_sharpness']}")
+
+    if args.pacing_analysis:
+        from scripts.pacing_analyzer import analyze_pacing
+        pacing = analyze_pacing(video_path, words)
+        result["pacing_score"] = pacing["pacing_score"]
+        result["words_per_sec"] = pacing["words_per_sec"]
+        result["avg_rms_energy"] = pacing["avg_rms_energy"]
+        logger.info(f"  {filename}: pacing_score={pacing['pacing_score']}, wps={pacing['words_per_sec']}")
+
+    if args.validate_clips:
+        from scripts.clip_validator import score_visual_variety, analyze_speaker_activity
+        variety = score_visual_variety(video_path)
+        result["visual_variety_score"] = variety["visual_variety_score"]
+        result["scene_change_count"] = variety["scene_change_count"]
+        logger.info(f"  {filename}: visual_variety={variety['visual_variety_score']}")
+
+        if words:
+            speaker = analyze_speaker_activity(words, 0, words[-1].get("end", 0))
+            result["speaking_time_ratio"] = speaker["speaking_time_ratio"]
+            logger.info(f"  {filename}: speaking_ratio={speaker['speaking_time_ratio']}")
+
+    # Composite and engagement depend on prior results — compute inline
+    if args.composite_scoring:
+        from scripts.composite_scorer import compute_composite_score
+        composite = compute_composite_score(
+            hook_score=result.get("hook_score", 50.0),
+            speech_ratio=result.get("speech_ratio", 0.8),
+            pacing_score=result.get("pacing_score", 50.0),
+            blur_ratio=result.get("blur_ratio", 0.0),
+            visual_variety_score=result.get("visual_variety_score", 50.0),
+        )
+        result["composite_quality_score"] = composite
+        logger.info(f"  {filename}: composite_score={composite}")
+
+    if args.engagement_prediction:
+        from scripts.engagement_predictor import predict_from_metadata
+        engagement = predict_from_metadata(result, model_path=engagement_model)
+        result["engagement_score"] = engagement
+        logger.info(f"  {filename}: engagement_score={engagement}")
+
+    return result
+
 
 def stage_quality(ctx: PipelineContext) -> None:
     """Validate clip quality: silence, hooks, blur, pacing, composite, engagement."""
@@ -384,7 +493,7 @@ def stage_quality(ctx: PipelineContext) -> None:
         return
 
     import glob as glob_mod
-    from scripts.smart_trim import load_whisperx_words
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     cuts_folder = os.path.join(ctx.project_folder, "cuts")
     subs_folder = os.path.join(ctx.project_folder, "subs")
     video_files = sorted(glob_mod.glob(os.path.join(cuts_folder, "*_original_scale.mp4")))
@@ -392,83 +501,37 @@ def stage_quality(ctx: PipelineContext) -> None:
     if not video_files or not ctx.viral_segments or "segments" not in ctx.viral_segments:
         return
 
-    logger.info(i18n("Validating clip quality..."))
-
+    segments = ctx.viral_segments["segments"]
+    valid_pairs = []
     for idx, video_path in enumerate(video_files):
-        if idx >= len(ctx.viral_segments["segments"]):
+        if idx >= len(segments):
             logger.warning(f"Skipping validation for {os.path.basename(video_path)}: no matching segment data")
             continue
-        seg = ctx.viral_segments["segments"][idx]
         filename = os.path.basename(video_path)
-
-        if args.validate_clips:
-            from scripts.clip_validator import validate_clip_boundaries
-            boundary = validate_clip_boundaries(video_path, noise_db=args.silence_threshold)
-            seg["speech_ratio"] = boundary["speech_ratio"]
-            seg["starts_on_silence"] = boundary["starts_on_silence"]
-            seg["ends_on_silence"] = boundary["ends_on_silence"]
-            if boundary["starts_on_silence"]:
-                logger.warning(f"  {filename}: starts on silence!")
-            logger.info(f"  {filename}: speech_ratio={boundary['speech_ratio']}")
-
-        # Load whisperx words ONCE per segment (avoid N+1 reads)
         base_name = filename.replace("_original_scale.mp4", "")
         json_path = os.path.join(subs_folder, f"{base_name}_processed.json")
-        words = load_whisperx_words(json_path) if os.path.exists(json_path) else []
+        valid_pairs.append((idx, video_path, json_path))
 
-        if args.hook_detection:
-            from scripts.hook_scorer import score_hook
-            hook = score_hook(video_path, words)
-            seg["hook_score"] = hook["hook_score"]
-            seg["hook_audio_energy"] = hook["audio_energy"]
-            logger.info(f"  {filename}: hook_score={hook['hook_score']}")
+    max_workers = min(4, len(valid_pairs))
+    logger.info(i18n("Validating clip quality...") + f" ({len(valid_pairs)} segments, {max_workers} workers)")
 
-        if args.blur_detection:
-            from scripts.blur_detector import detect_blur_frames
-            blur = detect_blur_frames(video_path)
-            seg["blur_ratio"] = blur["blur_ratio"]
-            seg["avg_sharpness"] = blur["avg_sharpness"]
-            if blur["blur_ratio"] > args.max_blur_ratio:
-                logger.warning(f"  {filename}: high blur ratio {blur['blur_ratio']:.2f}")
-            logger.info(f"  {filename}: blur_ratio={blur['blur_ratio']}, sharpness={blur['avg_sharpness']}")
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(
+                _analyze_single_segment, video_path, json_path, args,
+                getattr(args, 'engagement_model', None),
+            ): idx
+            for idx, video_path, json_path in valid_pairs
+        }
+        for future in as_completed(futures):
+            idx = futures[future]
+            try:
+                result = future.result()
+                segments[idx].update(result)
+            except Exception as e:
+                logger.error(f"Quality analysis failed for segment {idx}: {e}")
 
-        if args.pacing_analysis:
-            from scripts.pacing_analyzer import analyze_pacing
-            pacing = analyze_pacing(video_path, words)
-            seg["pacing_score"] = pacing["pacing_score"]
-            seg["words_per_sec"] = pacing["words_per_sec"]
-            seg["avg_rms_energy"] = pacing["avg_rms_energy"]
-            logger.info(f"  {filename}: pacing_score={pacing['pacing_score']}, wps={pacing['words_per_sec']}")
-
-        if args.validate_clips:
-            from scripts.clip_validator import score_visual_variety, analyze_speaker_activity
-            variety = score_visual_variety(video_path)
-            seg["visual_variety_score"] = variety["visual_variety_score"]
-            seg["scene_change_count"] = variety["scene_change_count"]
-            logger.info(f"  {filename}: visual_variety={variety['visual_variety_score']}")
-
-            if words:
-                speaker = analyze_speaker_activity(words, 0, words[-1].get("end", 0))
-                seg["speaking_time_ratio"] = speaker["speaking_time_ratio"]
-                logger.info(f"  {filename}: speaking_ratio={speaker['speaking_time_ratio']}")
-
-        if args.composite_scoring:
-            from scripts.composite_scorer import compute_composite_score
-            composite = compute_composite_score(
-                hook_score=seg.get("hook_score", 50.0),
-                speech_ratio=seg.get("speech_ratio", 0.8),
-                pacing_score=seg.get("pacing_score", 50.0),
-                blur_ratio=seg.get("blur_ratio", 0.0),
-                visual_variety_score=seg.get("visual_variety_score", 50.0),
-            )
-            seg["composite_quality_score"] = composite
-            logger.info(f"  {filename}: composite_score={composite}")
-
-        if args.engagement_prediction:
-            from scripts.engagement_predictor import predict_from_metadata
-            engagement = predict_from_metadata(seg, model_path=args.engagement_model)
-            seg["engagement_score"] = engagement
-            logger.info(f"  {filename}: engagement_score={engagement}")
+    logger.info(i18n("Clip quality validation complete."))
 
     # Save updated metadata
     segments_path = os.path.join(ctx.project_folder, "viral_segments.txt")

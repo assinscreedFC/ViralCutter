@@ -37,7 +37,8 @@ SUBTITLE_PRESETS = {
         "border_style": 1,
         "vertical_position": 180,
         "alignment": 2,
-        "remove_punctuation": True
+        "remove_punctuation": True,
+        "animation": "pop"
     },
 
     "Hormozi (Classic)": {
@@ -61,7 +62,8 @@ SUBTITLE_PRESETS = {
         "border_style": 1,
         "vertical_position": 200,
         "alignment": 2,
-        "remove_punctuation": True
+        "remove_punctuation": True,
+        "animation": "pop"
     },
 
     "Beasty (Loud)": {
@@ -85,7 +87,8 @@ SUBTITLE_PRESETS = {
         "border_style": 1,
         "vertical_position": 190,
         "alignment": 2,
-        "remove_punctuation": True
+        "remove_punctuation": True,
+        "animation": "bounce"
     },
 
     "Word Killer (TikTok)": {
@@ -109,7 +112,8 @@ SUBTITLE_PRESETS = {
         "border_style": 1,
         "vertical_position": 210,
         "alignment": 2,
-        "remove_punctuation": True
+        "remove_punctuation": True,
+        "animation": "bounce"
     },
 
     "Rapid Fire (Sprint)": {
@@ -133,7 +137,8 @@ SUBTITLE_PRESETS = {
         "border_style": 1,
         "vertical_position": 210,
         "alignment": 2,
-        "remove_punctuation": True
+        "remove_punctuation": True,
+        "animation": "bounce"
     },
 
     "Educational Fast": {
@@ -157,7 +162,8 @@ SUBTITLE_PRESETS = {
         "border_style": 1,
         "vertical_position": 220,
         "alignment": 2,
-        "remove_punctuation": False
+        "remove_punctuation": False,
+        "animation": "fade_pop"
     },
 
     "Podcast Viral (Centered)": {
@@ -181,7 +187,8 @@ SUBTITLE_PRESETS = {
         "border_style": 1,
         "vertical_position": 240,
         "alignment": 2,
-        "remove_punctuation": True
+        "remove_punctuation": True,
+        "animation": "pop"
     },
 
     "Drama Emocional": {
@@ -205,7 +212,8 @@ SUBTITLE_PRESETS = {
         "border_style": 1,
         "vertical_position": 235,
         "alignment": 2,
-        "remove_punctuation": True
+        "remove_punctuation": True,
+        "animation": "fade_pop"
     },
 
     "Story Subtitle (Netflix Style)": {
@@ -229,7 +237,8 @@ SUBTITLE_PRESETS = {
         "border_style": 3,
         "vertical_position": 250,
         "alignment": 2,
-        "remove_punctuation": False
+        "remove_punctuation": False,
+        "animation": "none"
     },
 
     "Neon Cyber": {
@@ -253,7 +262,8 @@ SUBTITLE_PRESETS = {
         "border_style": 1,
         "vertical_position": 205,
         "alignment": 2,
-        "remove_punctuation": True
+        "remove_punctuation": True,
+        "animation": "pop"
     },
 
     "Retro Pixel": {
@@ -276,12 +286,13 @@ SUBTITLE_PRESETS = {
         "strikeout": False,
         "border_style": 3,
         "vertical_position": 215,
-        "alignment": 2
+        "alignment": 2,
+        "animation": "none"
     }
 }
 
-def generate_preview_html(font, size, color, highlight, outline, outline_thick, shadow, shadow_sz, bold, italic, upper, 
-                          h_size, w_block, gap, mode, under, strike, border_s, vert_pos, align, remove_punc):
+def generate_preview_html(font, size, color, highlight, outline, outline_thick, shadow, shadow_sz, bold, italic, upper,
+                          h_size, w_block, gap, mode, under, strike, border_s, vert_pos, align, remove_punc, animation="none"):
     
     # Debug inputs
     #print(f"DEBUG_HTML: Inputs - Color: {color}, Highlight: {highlight}, Outline: {outline}")
@@ -358,6 +369,8 @@ def generate_preview_html(font, size, color, highlight, outline, outline_thick, 
         span_html = f'<span style="font-size: {highlight_preview_px}px; color: {highlight}; -webkit-text-stroke: {outline_thick}px {outline};">{preview_word}</span>'
         content_html = i18n("This is a {} of your subtitles").format(span_html)
 
+    anim_badge = f'<div style="text-align:center; font-size:12px; color:#888; margin-top:8px;">[Animation: {animation}]</div>' if animation and animation != "none" else ""
+
     html = f"""
     <div style="
         background-color: #222; 
@@ -390,6 +403,7 @@ def generate_preview_html(font, size, color, highlight, outline, outline_thick, 
         ">
             {content_html}
         </span>
+        {anim_badge}
     </div>
     """
     return html
@@ -398,20 +412,21 @@ def apply_preset(preset):
     if preset in SUBTITLE_PRESETS:
         p = SUBTITLE_PRESETS[preset]
         return (
-            p["font_name"], p["font_size"], p["base_color"], p["highlight_color"], 
-            p["outline_color"], p["outline_thickness"], p["shadow_color"], 
+            p["font_name"], p["font_size"], p["base_color"], p["highlight_color"],
+            p["outline_color"], p["outline_thickness"], p["shadow_color"],
             p["shadow_size"], p["bold"], p["italic"], p["uppercase"],
             p["highlight_size"], p["words_per_block"], p["gap_limit"], p["mode"],
             p["underline"], p["strikeout"], p["border_style"],
             p.get("vertical_position", 210), p.get("alignment", 2),
-            p.get("remove_punctuation", True)
+            p.get("remove_punctuation", True),
+            p.get("animation", "none")
         )
-    return (gr.skip(),) * 21 
+    return (gr.skip(),) * 22
 
 import scripts.adjust_subtitles as adjust
 
 def render_preview_video(font, size, color, highlight, outline, outline_thick, shadow, shadow_sz, bold, italic, upper,
-                         h_size, w_block, gap, mode, under, strike, border_s, vert_pos, align, remove_punc):
+                         h_size, w_block, gap, mode, under, strike, border_s, vert_pos, align, remove_punc, animation="none"):
     # Helper to convert HEX to ASS color &HBBGGRR&
     def hex_to_ass(h):
         try:
@@ -497,8 +512,9 @@ def render_preview_video(font, size, color, highlight, outline, outline_thick, s
             outline_thickness=outline_thick,
             shadow_size=shadow_sz,
             uppercase=upper,
-            face_modes={}, 
-            remove_punctuation=remove_punc
+            face_modes={},
+            remove_punctuation=remove_punc,
+            animation=animation
         )
         
         # Prepare safe path for ffmpeg filter: escape windows backslashes and colon

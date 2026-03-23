@@ -311,6 +311,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                         gap_limit_input = gr.Slider(label=i18n("Gap Limit"), minimum=0.0, maximum=5.0, value=0.5, step=0.1)
                         mode_input = gr.Dropdown(choices=[(i18n("Highlight"), "highlight"), (i18n("Word by Word"), "word_by_word"), (i18n("No Highlight"), "no_highlight")], label=i18n("Mode"), value="highlight")
                         words_per_block_input = gr.Slider(label=i18n("Words per Block"), minimum=1, maximum=20, value=3, step=1)
+                        animation_input = gr.Dropdown(choices=[("None", "none"), ("Pop", "pop"), ("Bounce", "bounce"), ("Fade Pop", "fade_pop")], label=i18n("Animation"), value="pop")
 
                 manual_inputs = [
                     font_name_input, font_size_input, font_color_input, highlight_color_input,
@@ -319,7 +320,8 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     highlight_size_input, words_per_block_input, gap_limit_input, mode_input,
                     underline_input, strikeout_input, border_style_input,
                     vertical_pos_input, alignment_input,
-                    remove_punc_input
+                    remove_punc_input,
+                    animation_input
                 ]
 
                 # Update manual inputs when preset changes
@@ -767,7 +769,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                               outline_color, outline_thickness, shadow_color, shadow_size,
                               is_bold, is_italic, is_uppercase,
                               h_size, w_block, gap, mode, under, strike, border_s,
-                              vertical_pos, alignment, remove_punc):
+                              vertical_pos, alignment, remove_punc, animation="pop"):
 
                 if not json_path: return i18n("No file loaded.")
 
@@ -789,7 +791,8 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                         "border_style": border_s, "words_per_block": int(w_block),
                         "gap_limit": gap, "mode": mode, "highlight_size": int(h_size),
                         "uppercase": 1 if is_uppercase else 0,
-                        "remove_punctuation": remove_punc
+                        "remove_punctuation": remove_punc,
+                        "animation": animation
                     }
                     try:
                         with open(subtitle_config_path, "w", encoding="utf-8") as f:
@@ -819,7 +822,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                            outline_color, outline_thickness, shadow_color, shadow_size,
                            is_bold, is_italic, is_uppercase,
                            h_size, w_block, gap, mode, under, strike, border_s,
-                           vertical_pos, alignment, remove_punc):
+                           vertical_pos, alignment, remove_punc, animation="pop"):
                 if not proj_name: return i18n("No project selected.")
 
                 # Save config
@@ -838,7 +841,8 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                         "border_style": border_s, "words_per_block": int(w_block),
                         "gap_limit": gap, "mode": mode, "highlight_size": int(h_size),
                         "uppercase": 1 if is_uppercase else 0,
-                        "remove_punctuation": remove_punc
+                        "remove_punctuation": remove_punc,
+                        "animation": animation
                     }
                     subtitle_config_path = os.path.join(WORKING_DIR, "temp_subtitle_config.json")
                     try:
