@@ -76,25 +76,22 @@ def detect_scenes_opencv(video_path: str, threshold: float = 30.0, sample_interv
 
     boundaries = [0.0]
     prev_gray = None
-    frame_idx = 0
+    frame_count = 0
 
-    while frame_idx < total_frames:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+    while frame_count < total_frames:
         ret, frame = cap.read()
         if not ret:
             break
-
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        gray, _ = downscale_for_analysis(gray, max_width=240)
-
-        if prev_gray is not None:
-            diff = cv2.absdiff(prev_gray, gray)
-            if np.mean(diff) > threshold:
-                timestamp = frame_idx / fps
-                boundaries.append(round(timestamp, 3))
-
-        prev_gray = gray
-        frame_idx += frame_step
+        if frame_count % frame_step == 0:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            gray, _ = downscale_for_analysis(gray, max_width=240)
+            if prev_gray is not None:
+                diff = cv2.absdiff(prev_gray, gray)
+                if np.mean(diff) > threshold:
+                    timestamp = frame_count / fps
+                    boundaries.append(round(timestamp, 3))
+            prev_gray = gray
+        frame_count += 1
 
     cap.release()
 
