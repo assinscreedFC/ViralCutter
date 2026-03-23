@@ -40,7 +40,7 @@ def create_premiere_xml(project_name, video_path, overlay_segments, duration_fra
                          coords_h = h_json
                          print(f"Coordinate System Reference: {coords_w}x{coords_h}")
                          # DO NOT overwrite source_width/source_height (Actual Media Dims)
-                 except: pass
+                 except Exception: pass
 
         print(f"Processing {len(face_data)} face entries for Dual-Track logic...")
         for entry in face_data:

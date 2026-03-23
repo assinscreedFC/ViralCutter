@@ -346,9 +346,7 @@ def transcribe(input_file: str, model_name: str = 'large-v3', project_folder: st
         logger.info(f"Processamento concluído em {int(elapsed//60)}m {int(elapsed%60)}s.")
 
     except Exception as e:
-        logger.error(f"ERRO CRÍTICO na transcrição: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception("Critical error during transcription")
         raise
 
     if not os.path.exists(srt_file):

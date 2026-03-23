@@ -117,8 +117,7 @@ def build_music_metadata_cache(music_dir: str, force: bool = False) -> dict:
 
         if force or entry is None or age_days > METADATA_CACHE_MAX_AGE_DAYS:
             full_path = os.path.join(music_dir, filename)
-            bpm = _compute_bpm(full_path)
-            energy = _compute_energy(full_path)
+            bpm, energy = _compute_audio_metadata(full_path)
             cache[filename] = {"bpm": bpm, "energy": energy, "scanned_at": now}
             logger.info(f"[MUSIC] Scanned: {filename} BPM={bpm:.0f} energy={energy:.4f}")
             updated = True
@@ -133,27 +132,20 @@ def build_music_metadata_cache(music_dir: str, force: bool = False) -> dict:
     return cache
 
 
-def _compute_bpm(audio_path: str) -> float:
+def _compute_audio_metadata(audio_path: str) -> tuple[float, float]:
+    """Compute BPM and energy in a single librosa.load call."""
     if not HAS_LIBROSA:
-        return 0.0
+        return 0.0, 0.0
     try:
         y, sr = librosa.load(audio_path, duration=60)
         tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
-        return float(tempo[0]) if hasattr(tempo, "__len__") else float(tempo)
-    except Exception as e:
-        logger.warning(f"BPM detection failed for {os.path.basename(audio_path)}: {e}")
-        return 0.0
-
-
-def _compute_energy(audio_path: str) -> float:
-    if not HAS_LIBROSA:
-        return 0.0
-    try:
-        y, sr = librosa.load(audio_path, duration=60)
+        bpm = float(tempo[0]) if hasattr(tempo, "__len__") else float(tempo)
         rms = librosa.feature.rms(y=y)
-        return float(np.mean(rms))
-    except Exception:
-        return 0.0
+        energy = float(np.mean(rms))
+        return bpm, energy
+    except Exception as e:
+        logger.warning(f"Audio metadata detection failed for {os.path.basename(audio_path)}: {e}")
+        return 0.0, 0.0
 
 
 # ---------------------------------------------------------------------------

@@ -151,16 +151,11 @@ def generate_captions_for_project(proj_name: str):
 
 # Helpers
 def convert_color_to_ass(hex_color, alpha="00"):
-    try:
-        with open("debug_colors.log", "a") as f:
-             f.write(f"INPUT: '{hex_color}'\n")
-    except OSError: pass  # debug log write failure is non-critical
-
     if not hex_color:
         return f"&H{alpha}FFFFFF&"
-    
+
     hex_clean = hex_color.lstrip('#').strip()
-    
+
     # Handle rgb/rgba format: rgb(255, 215, 0)
     if hex_clean.lower().startswith("rgb"):
         try:
@@ -176,37 +171,22 @@ def convert_color_to_ass(hex_color, alpha="00"):
                 b = max(0, min(255, b))
                 # Convert to hex
                 ret = f"&H{alpha}{b:02X}{g:02X}{r:02X}&".upper()
-                try:
-                    with open("debug_colors.log", "a") as f:
-                         f.write(f"PARSED RGB: {ret}\n")
-                except OSError: pass  # debug log write failure is non-critical
                 return ret
-        except Exception as e:
-            try:
-                with open("debug_colors.log", "a") as f:
-                     f.write(f"RGB ERROR: {e}\n")
-            except OSError: pass  # debug log write failure is non-critical
+        except Exception:
+            pass
 
     # Handle 3-digit hex (e.g. F00 -> FF0000)
     if len(hex_clean) == 3:
         hex_clean = "".join([c*2 for c in hex_clean])
-        
+
     if len(hex_clean) == 6:
         r = hex_clean[0:2]
         g = hex_clean[2:4]
         b = hex_clean[4:6]
         # Uppercase just in case
-        ret = f"&H{alpha}{b}{g}{r}&".upper() 
-        try:
-            with open("debug_colors.log", "a") as f:
-                 f.write(f"PARSED HEX: {ret}\n")
-        except OSError: pass  # debug log write failure is non-critical
+        ret = f"&H{alpha}{b}{g}{r}&".upper()
         return ret
 
-    try:
-        with open("debug_colors.log", "a") as f:
-             f.write(f"INVALID: Defaulting to White\n")
-    except OSError: pass  # debug log write failure is non-critical
     return f"&H{alpha}FFFFFF&"
 
 def kill_process():
@@ -406,7 +386,7 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
     cmd.extend(["--max-duration", str(int(max_duration))])
     cmd.extend(["--model", model])
     cmd.extend(["--ai-backend", ai_backend])
-    if api_key: cmd.extend(["--api-key", api_key])
+    # api_key is passed via environment variable to avoid exposure in process list
     
     # New AI Params
     if ai_model_name: cmd.extend(["--ai-model-name", str(ai_model_name)])
@@ -577,6 +557,8 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
     
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    if api_key:
+        env["GEMINI_API_KEY"] = api_key
     try:
         current_process = subprocess.Popen(cmd, cwd=WORKING_DIR, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True, env=env)
         logs = ""
@@ -1637,6 +1619,10 @@ if __name__ == "__main__":
             def export_xml_api(project: str, segment: int, background_tasks: BackgroundTasks, format: str = "premiere"):
                 try:
                     project_path = os.path.join(VIRALS_DIR, project)
+                    real_path = os.path.realpath(project_path)
+                    if not real_path.startswith(os.path.realpath(VIRALS_DIR)):
+                        from fastapi.responses import JSONResponse
+                        return JSONResponse(status_code=400, content={"error": "Invalid project path"})
                     script_path = os.path.join(WORKING_DIR, "scripts", "export_xml.py")
                     cmd = [sys.executable, script_path, "--project", project_path, "--segment", str(segment), "--format", format]
                     subprocess.run(cmd, check=True)
@@ -1659,7 +1645,7 @@ if __name__ == "__main__":
                 share=False, 
                 allowed_paths=allowed_dirs, 
                 inbrowser=True,
-                server_name="0.0.0.0",
+                server_name="127.0.0.1",
                 server_port=7860,
                 prevent_thread_lock=True
             )

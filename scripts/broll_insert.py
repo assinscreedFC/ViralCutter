@@ -210,7 +210,7 @@ def insert_broll(
             "-i", broll_video,
             "-filter_complex", filter_complex,
             *map_args,
-            "-c:v", "libx264", "-preset", "fast",
+            "-c:v", "libx264", "-preset", "ultrafast",
             "-c:a", "aac",
             output_path,
         ]

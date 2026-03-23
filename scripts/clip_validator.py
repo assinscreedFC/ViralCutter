@@ -11,6 +11,10 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+_FACE_CASCADE = cv2.CascadeClassifier(
+    cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+)
+
 
 def get_video_duration(video_path: str) -> float:
     """Get video duration in seconds via ffprobe."""
@@ -132,10 +136,6 @@ def score_visual_variety(
     duration = total_frames / fps if fps > 0 else 0
     frame_step = max(1, int(fps * sample_interval))
 
-    face_cascade = cv2.CascadeClassifier(
-        cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-    )
-
     prev_gray = None
     scene_changes = 0
     face_count = 0
@@ -159,7 +159,7 @@ def score_visual_variety(
                     scene_changes += 1
 
             # Face detection (lightweight Haar)
-            faces = face_cascade.detectMultiScale(gray, scaleFactor=1.3, minNeighbors=3, minSize=(60, 60))
+            faces = _FACE_CASCADE.detectMultiScale(gray, scaleFactor=1.3, minNeighbors=3, minSize=(60, 60))
             if len(faces) > 0:
                 face_count += 1
 

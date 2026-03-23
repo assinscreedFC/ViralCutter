@@ -18,23 +18,9 @@ def cut(
     scene_detection: bool = False,
 ) -> None:
 
-    def check_nvenc_support():
-        # ... (unchanged)
-        try:
-            result = subprocess.run(["ffmpeg", "-encoders"], capture_output=True, text=True)
-            return "h264_nvenc" in result.stdout
-        except subprocess.CalledProcessError:
-            return False
-
     def generate_segments(response, project_folder, skip_video, smart_trim=smart_trim,
                           trim_pad_start=trim_pad_start, trim_pad_end=trim_pad_end,
                           scene_detection=scene_detection):
-        if not check_nvenc_support():
-            logger.info("NVENC is not supported on this system. Falling back to libx264.")
-            video_codec = "libx264"
-        else:
-            video_codec = "h264_nvenc"
-
         # Procurar input_video.mp4 no project_folder ou tmp
         input_file = os.path.join(project_folder, "input.mp4")
         if not os.path.exists(input_file):
@@ -67,6 +53,17 @@ def cut(
                 words = load_whisperx_words(input_json_path)
             except Exception as e:
                 logger.warning(f"Failed to preload whisperx words: {e}")
+
+        # Preload scenes once before the loop (avoid N+1 re-analysis)
+        cached_scenes = None
+        if scene_detection:
+            try:
+                from scripts.scene_detector import detect_scenes
+                logger.info("Pre-computing scene detection (one-time)...")
+                cached_scenes = detect_scenes(input_file)
+                logger.info(f"  Found {len(cached_scenes)} scenes.")
+            except Exception as e:
+                logger.warning(f"Scene detection preload failed: {e}")
 
         for i, segment in enumerate(segments):
             start_time = segment.get("start_time", "00:00:00")
@@ -128,10 +125,10 @@ def cut(
                     logger.warning(f"Smart trim failed, using original timestamps: {e}")
 
             # --- Scene Detection: avoid cutting mid-scene ---
-            if scene_detection:
+            if scene_detection and cached_scenes:
                 try:
-                    from scripts.scene_detector import detect_scenes, validate_cut_boundaries
-                    scenes = detect_scenes(input_file)
+                    from scripts.scene_detector import validate_cut_boundaries
+                    scenes = cached_scenes
                     if scenes:
                         end_time_sec = start_time_seconds + duration_seconds
                         result = validate_cut_boundaries(start_time_seconds, end_time_sec, scenes)
@@ -175,27 +172,10 @@ def cut(
                     "-ss", start_time_str,
                     "-i", input_file,
                     "-t", duration_str,
-                    "-c:v", video_codec
-                ]
-
-                if video_codec == "h264_nvenc":
-                    command.extend([
-                        "-preset", "p1",
-                        "-rc:v", "vbr",
-                        "-cq", "19",
-                        "-maxrate", "8M",
-                    ])
-                else:
-                    command.extend([
-                        "-preset", "ultrafast",
-                        "-crf", "23"
-                    ])
-
-                command.extend([
-                    "-c:a", "aac",
-                    "-b:a", "128k",
+                    "-c", "copy",
+                    "-avoid_negative_ts", "make_zero",
                     output_path
-                ])
+                ]
 
                 try:
                     subprocess.run(command, check=True, capture_output=True, text=True)

@@ -30,8 +30,10 @@ def substituir_texto(text, substituicoes):
         text = text.replace(old, new)
     return text
 
+MAX_RETRIES = 5
+
 async def translate_chunk(index, chunk, target_lang):
-    while True:
+    for attempt in range(MAX_RETRIES):
         try:
             translator = GoogleTranslator(source='auto', target=target_lang)
             translated_chunk = await asyncio.get_event_loop().run_in_executor(None, translator.translate, chunk)
@@ -42,6 +44,9 @@ async def translate_chunk(index, chunk, target_lang):
 
             return translated_chunk
         except Exception as e:
+            if attempt == MAX_RETRIES - 1:
+                logger.error(f"[chunk {index}]: Max retries exceeded: {e}")
+                return chunk  # return untranslated chunk as fallback
             logger.warning(f"[chunk {index}]: Exception: {e.__doc__} Retrying in 30 seconds...")
             await asyncio.sleep(30)
 

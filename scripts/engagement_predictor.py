@@ -21,6 +21,18 @@ FEATURE_NAMES = [
     "composite_quality_score",
 ]
 
+_MODEL_CACHE: dict[str, "xgb.Booster"] = {}
+
+
+def _get_model(model_path: str) -> "xgb.Booster":
+    import xgboost as xgb
+    if model_path not in _MODEL_CACHE:
+        model = xgb.Booster()
+        model.load_model(model_path)
+        _MODEL_CACHE[model_path] = model
+    return _MODEL_CACHE[model_path]
+
+
 FEATURE_DEFAULTS: dict[str, float] = {
     "hook_score": 50.0,
     "speech_ratio": 0.8,
@@ -64,8 +76,7 @@ def predict_engagement(features: list[float], model_path: str) -> float:
         return features[-1] if len(features) == len(FEATURE_NAMES) else 50.0
 
     try:
-        model = xgb.Booster()
-        model.load_model(model_path)
+        model = _get_model(model_path)
         dmatrix = xgb.DMatrix(np.array([features]), feature_names=FEATURE_NAMES)
         prediction = float(model.predict(dmatrix)[0])
         return max(0.0, min(100.0, prediction))

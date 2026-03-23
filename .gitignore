@@ -12,3 +12,5 @@ VIRALS/
 credentials/
 recapmanga/*.json
 *.log
+api_config.json
+webui/settings.json

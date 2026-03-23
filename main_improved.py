@@ -417,7 +417,7 @@ def main() -> None:
                 else:
                     ai_backend = "manual"
 
-        api_key = args.api_key
+        api_key = args.api_key or os.getenv("GEMINI_API_KEY", "")
         # Check config for API Key if using Gemini
         if ai_backend == "gemini" and not api_key:
             cfg_key = api_config.get("gemini", {}).get("api_key", "")

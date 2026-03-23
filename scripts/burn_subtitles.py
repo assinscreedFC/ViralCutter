@@ -22,7 +22,7 @@ def burn_video_file(video_path: str, subtitle_path: str, output_path: str) -> tu
     tmp_ass = os.path.join(tmp_dir, "sub.ass")
     shutil.copy2(subtitle_path, tmp_ass)
 
-    subtitle_file_ffmpeg = tmp_ass.replace('\\', '/').replace(':', '\\:')
+    subtitle_file_ffmpeg = tmp_ass.replace('\\', '/').replace(':', '\\:').replace("'", "'\\\\''")
 
     def run_ffmpeg(encoder, preset, additional_args=None):
         if additional_args is None:

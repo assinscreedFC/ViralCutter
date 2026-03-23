@@ -237,10 +237,4 @@ def export_pack(project_path, segment_index, output_format="premiere"):
     
     print(f"SUCCESS: Export Pack created at {zip_path}")
     
-    # Cleanup
-    try:
-        # shutil.rmtree(stage_dir)
-        pass
-    except: pass
-    
     return zip_path

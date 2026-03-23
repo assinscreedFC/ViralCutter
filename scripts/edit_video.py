@@ -190,6 +190,7 @@ def generate_short_fallback(input_file: str, output_file: str, index: int, proje
     if no_face_mode == "saliency":
         saliency_detector = cv2.saliency.StaticSaliencySpectralResidual.create()
 
+    frame_idx = 0
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -224,9 +225,10 @@ def generate_short_fallback(input_file: str, output_file: str, index: int, proje
 
         try:
             process.stdin.write(result.tobytes())
-        except Exception as e:
-            logger.error(f"Error writing frame to ffmpeg pipe: {e}")
-            pass
+        except (BrokenPipeError, OSError) as e:
+            logger.error("ffmpeg pipe broken at frame %d: %s", frame_idx, e)
+            break
+        frame_idx += 1
 
     cap.release()
     process.stdin.close()
@@ -322,6 +324,7 @@ def generate_short_mediapipe(input_file: str, output_file: str, index: int, face
         elif face_mode == "2":
              current_interval = int(1.0 * fps)
         
+        coordinate_log: list[dict] = []
         last_detected_faces = None
         last_frame_face_positions = None
         last_success_frame = -1000
@@ -1293,7 +1296,7 @@ def edit(project_folder: str = "tmp", face_model: str = "insightface", face_mode
              elif input_filename.startswith("output"): # output000
                  idx_str = input_filename[6:9]
                  if idx_str.isdigit(): index = int(idx_str)
-        except: pass
+        except (ValueError, IndexError): pass
         
         output_file = os.path.join(final_folder, f"temp_video_no_audio_{index}.mp4")
 
@@ -1324,8 +1327,7 @@ def edit(project_folder: str = "tmp", face_model: str = "insightface", face_mode
                     if res: detected_mode = res
                     success = True
                 except Exception as e:
-                    import traceback
-                    traceback.print_exc()
+                    logger.exception("Critical error during video processing")
                     logger.error(f"InsightFace processing failed for {input_filename}: {e}")
                     logger.warning("Falling back to MediaPipe/Haar...")
             
