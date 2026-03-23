@@ -1,0 +1,108 @@
+"""CLI argument parser for ViralCutter."""
+from __future__ import annotations
+
+import argparse
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build and return the argument parser with all ViralCutter options."""
+    parser = argparse.ArgumentParser(description="ViralCutter CLI")
+    parser.add_argument("--url", help="YouTube Video URL")
+    parser.add_argument("--segments", type=int, help="Number of segments to create")
+    parser.add_argument("--viral", action="store_true", help="Enable viral mode")
+    parser.add_argument("--themes", help="Comma-separated themes (if not viral mode)")
+    parser.add_argument("--burn-only", action="store_true", help="Skip processing and only burn subtitles")
+    parser.add_argument("--min-duration", type=int, default=15, help="Minimum segment duration (seconds)")
+    parser.add_argument("--max-duration", type=int, default=90, help="Maximum segment duration (seconds)")
+    parser.add_argument("--model", default="large-v3-turbo", help="Whisper model to use")
+
+    parser.add_argument("--ai-backend", choices=["manual", "gemini", "g4f", "pleiade", "local"], help="AI backend for viral analysis")
+    parser.add_argument("--api-key", help="Gemini API Key (required if ai-backend is gemini)")
+
+    parser.add_argument("--chunk-size", help="Override Chunk Size")
+    parser.add_argument("--ai-model-name", help="Override AI Model Name")
+
+    parser.add_argument("--project-path", help="Path to existing project folder (overrides URL/Latest)")
+    parser.add_argument("--workflow", choices=["1", "2", "3"], default="1", help="Workflow choice: 1=Full, 2=Cut Only, 3=Subtitles Only")
+    parser.add_argument("--face-model", choices=["insightface", "mediapipe"], default="insightface", help="Face detection model")
+    parser.add_argument("--face-mode", choices=["auto", "1", "2"], default="auto", help="Face tracking mode: auto, 1, 2")
+    parser.add_argument("--subtitle-config", help="Path to subtitle configuration JSON file")
+    parser.add_argument("--no-face-mode", choices=["padding", "zoom", "saliency", "motion"], default="padding", help="Method to handle segments with no face detected")
+    parser.add_argument("--face-detect-interval", type=str, default="0.17,1.0", help="Face detection interval in seconds. Single value or 'interval_1face,interval_2face'")
+    parser.add_argument("--face-filter-threshold", type=float, default=0.35, help="Relative area threshold to ignore background faces (default: 0.35)")
+    parser.add_argument("--face-two-threshold", type=float, default=0.60, help="Relative area threshold to trigger 2-face mode (default: 0.60)")
+    parser.add_argument("--face-confidence-threshold", type=float, default=0.30, help="Face detection confidence threshold (0.0 - 1.0) (default: 0.30)")
+    parser.add_argument("--face-dead-zone", type=str, default="40", help="Camera movement dead zone in pixels (default: 40)")
+    parser.add_argument("--focus-active-speaker", action="store_true", help="Enable experimental active speaker focus (InsightFace only)")
+    parser.add_argument("--active-speaker-mar", type=float, default=0.03, help="Mouth Aspect Ratio threshold for active speaker (0.0 - 1.0) (default: 0.03)")
+    parser.add_argument("--active-speaker-score-diff", type=float, default=1.5, help="Score difference to focus on active speaker (default: 1.5)")
+    parser.add_argument("--include-motion", action="store_true", help="Include motion (body/head movement) in activity score")
+    parser.add_argument("--active-speaker-motion-threshold", type=float, default=3.0, help="Motion deadzone in pixels (default: 3.0)")
+    parser.add_argument("--active-speaker-motion-sensitivity", type=float, default=0.05, help="Motion sensitivity multiplier (default: 0.05)")
+    parser.add_argument("--active-speaker-decay", type=float, default=2.0, help="Activity score decay rate (default: 2.0)")
+    parser.add_argument("--skip-prompts", action="store_true", help="Skip interactive prompts and use defaults/existing files")
+    parser.add_argument("--video-quality", choices=["best", "1080p", "720p", "480p"], default="best", help="Video download quality")
+    parser.add_argument("--skip-youtube-subs", action="store_true", help="Skip downloading YouTube subtitles")
+    parser.add_argument("--translate-target", help="Target language code for subtitle translation (e.g. 'pt', 'en').")
+    parser.add_argument("--content-type", choices=["auto", "anime", "comedy", "commentary", "cooking", "education", "gaming", "manga", "motivation", "music", "news", "podcast", "sport", "talkshow", "vlog"], action="append", dest="content_type", default=None, help="Content type for adaptive prompts")
+    parser.add_argument("--enable-scoring", action="store_true", help="Enable LLM scoring pass to filter low-quality segments")
+    parser.add_argument("--min-score", type=int, default=70, help="Minimum viral score to keep a segment (0-100, default: 70)")
+    parser.add_argument("--enable-validation", action="store_true", help="Enable LLM validation pass")
+    parser.add_argument("--zoom-out-factor", type=float, default=2.2, help="Zoom out factor for 2-face mode (default: 2.2)")
+    parser.add_argument("--add-music", action="store_true", help="Add background music to final clips")
+    parser.add_argument("--music-dir", help="Directory with background music files (default: music/)")
+    parser.add_argument("--music-file", help="Specific music file to use")
+    parser.add_argument("--music-volume", type=float, default=0.12, help="Background music volume (default: 0.12)")
+    parser.add_argument("--add-distraction", action="store_true", help="Add split-screen distraction video (TikTok format)")
+    parser.add_argument("--distraction-dir", help="Directory with distraction videos (default: distraction/)")
+    parser.add_argument("--distraction-file", help="Specific distraction video to use")
+    parser.add_argument("--distraction-no-fetch", action="store_true", help="Disable auto-fetch of distraction videos (use cache only)")
+    parser.add_argument("--distraction-ratio", type=float, default=0.35,
+                        help="Part de la hauteur de l'écran pour la distraction (0.20-0.50, défaut 0.35)")
+    parser.add_argument("--remove-silence", action="store_true", help="Remove silent portions from cut segments (jump cuts)")
+    parser.add_argument("--silence-threshold", type=float, default=-30, help="Silence detection threshold in dB (default: -30)")
+    parser.add_argument("--silence-min-duration", type=float, default=0.5, help="Minimum silence duration to detect in seconds (default: 0.5)")
+    parser.add_argument("--silence-max-keep", type=float, default=0.3, help="Maximum silence to keep in seconds, 0=remove all (default: 0.3)")
+    # --- Video Quality (Phase 1) ---
+    parser.add_argument("--smart-trim", action="store_true", help="Snap cuts to sentence boundaries using word timestamps")
+    parser.add_argument("--trim-pad-start", type=float, default=0.3, help="Padding before start in seconds (default: 0.3)")
+    parser.add_argument("--trim-pad-end", type=float, default=0.5, help="Padding after end in seconds (default: 0.5)")
+    parser.add_argument("--scene-detection", action="store_true", help="Detect scene changes to avoid mid-scene cuts")
+    parser.add_argument("--validate-clips", action="store_true", help="Validate clip boundaries for silence and compute speech ratio")
+    parser.add_argument("--hook-detection", action="store_true", help="Score first 3 seconds of each clip for hook strength")
+    parser.add_argument("--min-hook-score", type=int, default=40, help="Minimum hook score to keep clip (0-100, default: 40)")
+    parser.add_argument("--blur-detection", action="store_true", help="Detect blurry frames in clips")
+    parser.add_argument("--max-blur-ratio", type=float, default=0.3, help="Max ratio of blurry frames (0-1, default: 0.3)")
+    # --- Scoring (Phase 2) ---
+    parser.add_argument("--pacing-analysis", action="store_true", help="Analyze speech pacing and audio energy")
+    parser.add_argument("--composite-scoring", action="store_true", help="Compute composite quality score from all signals")
+    # --- Features (Phase 3) ---
+    parser.add_argument("--remove-fillers", action="store_true", help="Detect and remove filler words (um, uh, like...)")
+    parser.add_argument("--auto-thumbnail", action="store_true", help="Generate best-frame thumbnails for each clip")
+    parser.add_argument("--auto-zoom", action="store_true", help="Apply dynamic zoom on LLM-generated zoom_cues")
+    parser.add_argument("--speed-ramp", action="store_true", help="Speed up dead moments, slow down highlights")
+    parser.add_argument("--speed-up-factor", type=float, default=1.5, help="Speed factor for dead moments (default: 1.5)")
+    # --- Post-production (Phase 4) ---
+    parser.add_argument("--progress-bar", action="store_true", help="Add animated progress bar overlay")
+    parser.add_argument("--bar-color", type=str, default="white", help="Progress bar color (default: white)")
+    parser.add_argument("--bar-position", type=str, default="top", choices=["top", "bottom"], help="Progress bar position")
+    parser.add_argument("--ab-variants", action="store_true", help="Generate A/B caption variants")
+    parser.add_argument("--num-variants", type=int, default=3, help="Number of caption variants (default: 3)")
+    parser.add_argument("--layout", type=str, default=None, choices=["pip", "lower-third"], help="Visual layout template")
+    parser.add_argument("--auto-broll", action="store_true", help="Auto-insert B-roll from Pexels")
+    parser.add_argument("--transitions", type=str, default=None, choices=["fade", "wipeleft", "wiperight", "slideup", "slidedown"], help="Transition type between clips")
+    parser.add_argument("--output-resolution", type=str, default="1080p", choices=["720p", "1080p", "4k"], help="Output resolution (default: 1080p)")
+    parser.add_argument("--emoji-overlay", action="store_true", help="Add emoji overlays at key moments")
+    parser.add_argument("--color-grade", type=str, default=None, help="Color grading LUT preset")
+    parser.add_argument("--grade-intensity", type=float, default=0.7, help="Color grading intensity 0-1 (default: 0.7)")
+    # --- Advanced AI (Phase 5) ---
+    parser.add_argument("--engagement-prediction", action="store_true", help="Predict engagement score using ML model")
+    parser.add_argument("--engagement-model", type=str, default=None, help="Path to trained XGBoost model file")
+    parser.add_argument("--dubbing", action="store_true", help="AI dubbing: translate and voice-over in target language")
+    parser.add_argument("--dubbing-language", type=str, default="en", help="Target language for dubbing (default: en)")
+    parser.add_argument("--dubbing-original-volume", type=float, default=0.2, help="Original audio volume during dubbing (0-1, default: 0.2)")
+
+    parser.add_argument("--enable-parts", action="store_true", help="Enable parts mode: long passages auto-split into multi-part series")
+    parser.add_argument("--target-part-duration", type=int, default=55, help="Target duration for each part after splitting (seconds, default: 55)")
+
+    return parser
