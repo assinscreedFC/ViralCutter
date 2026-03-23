@@ -272,11 +272,12 @@ def transcribe(input_file: str, model_name: str = 'large-v3', project_folder: st
                 asr_options={"hotwords": None}
             )
 
-            result = model.transcribe(
-                audio,
-                batch_size=4,
-                chunk_size=10
-            )
+            with torch.no_grad():
+                result = model.transcribe(
+                    audio,
+                    batch_size=4,
+                    chunk_size=10
+                )
             
             detected_language = result["language"]
             start_segments = result["segments"]

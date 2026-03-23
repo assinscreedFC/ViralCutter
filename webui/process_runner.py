@@ -489,8 +489,8 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
             worker.join(timeout=5)
         current_worker = None
 
-    # Wait to ensure filesystem flush
-    time.sleep(1.0)
+    # Brief wait to ensure filesystem flush
+    time.sleep(0.1)
 
     # -- Auto Post ---------------------------------------------------------
     if (post_youtube or post_tiktok) and project_folder_path and os.path.exists(project_folder_path):

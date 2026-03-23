@@ -1314,6 +1314,22 @@ def edit(project_folder: str = "tmp", face_model: str = "insightface", face_mode
         # Try finding lookahead in case listdir failed? No, glob is fine.
         return
 
+    # Pre-create MediaPipe sessions once (reused across all files)
+    _mp_face_det = None
+    _mp_face_msh = None
+    _mp_pose_sess = None
+    if mediapipe_working:
+        try:
+            _mp_face_det = mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.2)
+            _mp_face_msh = mp_face_mesh.FaceMesh(static_image_mode=False, max_num_faces=2, refine_landmarks=True, min_detection_confidence=0.2, min_tracking_confidence=0.2)
+            _mp_pose_sess = mp_pose.Pose(static_image_mode=False, min_detection_confidence=0.5, min_tracking_confidence=0.5)
+            _mp_face_det.__enter__()
+            _mp_face_msh.__enter__()
+            _mp_pose_sess.__enter__()
+        except Exception as e:
+            logger.warning(f"Failed to pre-create MediaPipe sessions: {e}")
+            _mp_face_det = _mp_face_msh = _mp_pose_sess = None
+
     for input_file in found_files:
         input_filename = os.path.basename(input_file)
         
@@ -1361,19 +1377,15 @@ def edit(project_folder: str = "tmp", face_model: str = "insightface", face_mode
                     logger.warning("Falling back to MediaPipe/Haar...")
             
             # 2. Try MediaPipe if InsightFace failed or not available
-            if not success and mediapipe_working:
+            if not success and mediapipe_working and _mp_face_det is not None:
                 try:
-                    with mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.2) as face_detection, \
-                         mp_face_mesh.FaceMesh(static_image_mode=False, max_num_faces=2, refine_landmarks=True, min_detection_confidence=0.2, min_tracking_confidence=0.2) as face_mesh, \
-                         mp_pose.Pose(static_image_mode=False, min_detection_confidence=0.5, min_tracking_confidence=0.5) as pose:
-                        
-                        generate_short_mediapipe(input_file, output_file, index, face_mode, project_folder, final_folder, face_detection, face_mesh, pose, detection_period=detection_period, no_face_mode=no_face_mode)
-                        # We don't easily know detected mode here without return, assuming '1' or '2' based on last frame? 
-                        # Ideally function should return as well.
-                        detected_mode = "1" # Placeholder, user didn't complain about stats.
-                        # detected_mode = str(mp_num_faces) # Error fix: mp_num_faces not defined
-                        if face_mode == "2":
-                            detected_mode = "2"
+                    generate_short_mediapipe(input_file, output_file, index, face_mode, project_folder, final_folder, _mp_face_det, _mp_face_msh, _mp_pose_sess, detection_period=detection_period, no_face_mode=no_face_mode)
+                    # We don't easily know detected mode here without return, assuming '1' or '2' based on last frame?
+                    # Ideally function should return as well.
+                    detected_mode = "1" # Placeholder, user didn't complain about stats.
+                    # detected_mode = str(mp_num_faces) # Error fix: mp_num_faces not defined
+                    if face_mode == "2":
+                        detected_mode = "2"
                     success = True
                 except Exception as e:
                      logger.error(f"MediaPipe processing failed: {e}")
@@ -1455,6 +1467,14 @@ def edit(project_folder: str = "tmp", face_model: str = "insightface", face_mode
              except Exception as e:
                  logger.warning(f"Warning: Could not rename file with title: {e}") 
         
+    # Cleanup MediaPipe sessions
+    for _sess in (_mp_face_det, _mp_face_msh, _mp_pose_sess):
+        if _sess is not None:
+            try:
+                _sess.__exit__(None, None, None)
+            except Exception:
+                pass
+
     # Save Face Modes to JSON for subtitle usage
     modes_file = os.path.join(project_folder, "face_modes.json")
     try:

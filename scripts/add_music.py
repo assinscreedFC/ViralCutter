@@ -255,7 +255,7 @@ def get_beat_times(audio_path: str) -> list[float]:
     if not HAS_LIBROSA:
         return []
     try:
-        y, sr = librosa.load(audio_path)
+        y, sr = librosa.load(audio_path, duration=60)
         _, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
         return librosa.frames_to_time(beat_frames, sr=sr).tolist()
     except Exception:

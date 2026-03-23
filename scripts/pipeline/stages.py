@@ -411,11 +411,13 @@ def stage_quality(ctx: PipelineContext) -> None:
                 logger.warning(f"  {filename}: starts on silence!")
             logger.info(f"  {filename}: speech_ratio={boundary['speech_ratio']}")
 
+        # Load whisperx words ONCE per segment (avoid N+1 reads)
+        base_name = filename.replace("_original_scale.mp4", "")
+        json_path = os.path.join(subs_folder, f"{base_name}_processed.json")
+        words = load_whisperx_words(json_path) if os.path.exists(json_path) else []
+
         if args.hook_detection:
             from scripts.hook_scorer import score_hook
-            base_name = filename.replace("_original_scale.mp4", "")
-            json_path = os.path.join(subs_folder, f"{base_name}_processed.json")
-            words = load_whisperx_words(json_path) if os.path.exists(json_path) else []
             hook = score_hook(video_path, words)
             seg["hook_score"] = hook["hook_score"]
             seg["hook_audio_energy"] = hook["audio_energy"]
@@ -432,9 +434,6 @@ def stage_quality(ctx: PipelineContext) -> None:
 
         if args.pacing_analysis:
             from scripts.pacing_analyzer import analyze_pacing
-            base_name = filename.replace("_original_scale.mp4", "")
-            json_path = os.path.join(subs_folder, f"{base_name}_processed.json")
-            words = load_whisperx_words(json_path) if os.path.exists(json_path) else []
             pacing = analyze_pacing(video_path, words)
             seg["pacing_score"] = pacing["pacing_score"]
             seg["words_per_sec"] = pacing["words_per_sec"]
@@ -448,9 +447,6 @@ def stage_quality(ctx: PipelineContext) -> None:
             seg["scene_change_count"] = variety["scene_change_count"]
             logger.info(f"  {filename}: visual_variety={variety['visual_variety_score']}")
 
-            base_name = filename.replace("_original_scale.mp4", "")
-            json_path = os.path.join(subs_folder, f"{base_name}_processed.json")
-            words = load_whisperx_words(json_path) if os.path.exists(json_path) else []
             if words:
                 speaker = analyze_speaker_activity(words, 0, words[-1].get("end", 0))
                 seg["speaking_time_ratio"] = speaker["speaking_time_ratio"]
