@@ -29,6 +29,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Import webui-local modules (they live in the same package directory)
 # ---------------------------------------------------------------------------
+_WEBUI_DIR = os.path.dirname(os.path.abspath(__file__))
+if _WEBUI_DIR not in sys.path:
+    sys.path.insert(0, _WEBUI_DIR)
 import library  # type: ignore[import-untyped]
 
 # ---------------------------------------------------------------------------

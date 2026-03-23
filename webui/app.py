@@ -13,6 +13,12 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 
+# Ensure project root is on sys.path so `webui.*` package imports work
+# even when app.py is launched directly (e.g. `python webui/app.py`).
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -27,9 +33,14 @@ from webui.presets import (
 from webui.settings_manager import SETTINGS_KEYS, save_settings, load_settings
 from webui.process_runner import run_viral_cutter, kill_process, generate_captions_for_project
 
-# Ensure WORKING_DIR is on sys.path for project-level imports
+# Ensure WORKING_DIR is on sys.path for project-level imports (i18n, scripts)
 if WORKING_DIR not in sys.path:
     sys.path.append(WORKING_DIR)
+
+# Ensure webui dir is on sys.path for sibling modules (library, subtitle_handler)
+_WEBUI_DIR = os.path.dirname(os.path.abspath(__file__))
+if _WEBUI_DIR not in sys.path:
+    sys.path.insert(0, _WEBUI_DIR)
 
 from i18n.i18n import I18nAuto
 i18n = I18nAuto()
