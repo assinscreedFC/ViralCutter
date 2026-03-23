@@ -9,6 +9,7 @@ import subprocess
 import mediapipe as mp
 
 from scripts.run_cmd import run as run_cmd
+from scripts.frame_utils import downscale_for_analysis
 from typing import Callable
 
 logger = logging.getLogger(__name__)
@@ -351,7 +352,11 @@ def generate_short_mediapipe(input_file: str, output_file: str, index: int, face
 
             if frame_index >= next_detection_frame:
                 # Detect ALL faces (up to 2 in our implementation)
-                detections = detect_face_or_body_two_faces(frame, face_detection, face_mesh, pose)
+                small_mp, scale_mp = downscale_for_analysis(frame, max_width=480)
+                detections = detect_face_or_body_two_faces(small_mp, face_detection, face_mesh, pose)
+                # Scale coordinates back to original resolution
+                if detections and scale_mp > 1.0:
+                    detections = [(int(x * scale_mp), int(y * scale_mp), int(w * scale_mp), int(h * scale_mp)) for x, y, w, h in detections]
                 
                 # Dynamic Logic
                 target_faces = 1
@@ -508,13 +513,17 @@ def generate_short_haar(input_file: str, output_file: str, index: int, project_f
             break
 
         if frame_index % detection_interval == 0:
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            small_haar, scale_haar = downscale_for_analysis(frame, max_width=480)
+            gray = cv2.cvtColor(small_haar, cv2.COLOR_BGR2GRAY)
             faces = face_cascade.detectMultiScale(gray, 1.1, 4)
-            
+
             detections = []
             if len(faces) > 0:
                 # Pick largest face
                 largest_face = max(faces, key=lambda f: f[2] * f[3])
+                # Scale coordinates back to original resolution
+                if scale_haar > 1.0:
+                    largest_face = tuple(int(c * scale_haar) for c in largest_face)
                 # Ensure int type
                 detections = [tuple(map(int, largest_face))]
 
@@ -650,8 +659,17 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
             break
 
         if frame_index >= next_detection_frame and len(transition_frames) == 0:
-            # Detect faces
-            faces = detect_faces_insightface(frame)
+            # Detect faces on downscaled frame for performance
+            small_if, scale_if = downscale_for_analysis(frame, max_width=480)
+            faces = detect_faces_insightface(small_if)
+            # Scale bounding boxes and landmarks back to original resolution
+            if faces and scale_if > 1.0:
+                for f in faces:
+                    f['bbox'] = f['bbox'] * scale_if
+                    if 'landmark_3d_68' in f and f['landmark_3d_68'] is not None:
+                        f['landmark_3d_68'][:, :2] *= scale_if
+                    if 'landmark_2d_106' in f and f['landmark_2d_106'] is not None:
+                        f['landmark_2d_106'][:, :2] *= scale_if
             if faces:
                 scores = [f"{f.get('det_score',0):.2f}" for f in faces]
                 logger.debug(f"DEBUG: Frame {frame_index} | Raw Faces: {len(faces)} | Scores: {scores}")
@@ -895,7 +913,16 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
                 # Try 1 frame ahead
                 ret2, frame2 = cap.read()
                 if ret2 and frame2 is not None:
-                     faces2 = detect_faces_insightface(frame2)
+                     small_if2, scale_if2 = downscale_for_analysis(frame2, max_width=480)
+                     faces2 = detect_faces_insightface(small_if2)
+                     # Scale bounding boxes back to original resolution
+                     if faces2 and scale_if2 > 1.0:
+                         for f in faces2:
+                             f['bbox'] = f['bbox'] * scale_if2
+                             if 'landmark_3d_68' in f and f['landmark_3d_68'] is not None:
+                                 f['landmark_3d_68'][:, :2] *= scale_if2
+                             if 'landmark_2d_106' in f and f['landmark_2d_106'] is not None:
+                                 f['landmark_2d_106'][:, :2] *= scale_if2
                      
                      # --- Apply same filtering to lookahead ---
                      valid_faces2 = []

@@ -37,12 +37,15 @@ def init_insightface():
         raise ImportError("InsightFace not installed. Please install it.")
     
     if app is None:
-        # Provider options to reduce logging if possible (often needs env var)
-        # But redirection is safer for C++ logs
         providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
-        
+
+        # Configure ONNX Runtime for performance
+        optimal_threads = min(8, os.cpu_count() or 4)
+        os.environ.setdefault("ORT_NUM_THREADS", str(optimal_threads))
+
         try:
             import onnxruntime as ort
+            ort.set_default_logger_severity(3)  # Suppress verbose ONNX logs
             available = ort.get_available_providers()
             print(f"InsightFace: Available ONNX Providers: {available}")
             if 'CUDAExecutionProvider' not in available:
@@ -54,6 +57,21 @@ def init_insightface():
         with suppress_stdout_stderr():
             app = FaceAnalysis(name='buffalo_l', providers=providers)
             app.prepare(ctx_id=0, det_size=(640, 640))
+
+        # Apply optimized session options to all loaded ONNX models
+        try:
+            import onnxruntime as ort
+            so = ort.SessionOptions()
+            so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+            so.intra_op_num_threads = optimal_threads
+            for model in app.models:
+                if hasattr(model, 'session') and model.session is not None:
+                    model_path = model.session._model_path
+                    model.session = ort.InferenceSession(
+                        model_path, sess_options=so, providers=providers
+                    )
+        except Exception:
+            pass  # Non-critical: fall back to default session options
     return app
 
 def detect_faces_insightface(frame):
