@@ -22,6 +22,7 @@ from scripts import (
 )
 from scripts.models import Segment
 from scripts.pipeline.context import PipelineContext
+from scripts.pipeline.errors import PipelineError
 
 logger = logging.getLogger(__name__)
 i18n = I18nAuto()
@@ -90,8 +91,7 @@ def stage_download(ctx: PipelineContext) -> None:
 
     if not ctx.input_video:
         if not ctx.url:
-            logger.error(i18n("Error: No URL provided and no existing video selected."))
-            sys.exit(1)
+            raise PipelineError(i18n("Error: No URL provided and no existing video selected."))
 
         logger.info(i18n("Starting download..."))
         download_subs = not args.skip_youtube_subs
@@ -175,8 +175,7 @@ def stage_viral_segments(ctx: PipelineContext) -> None:
         if not ctx.viral_segments or not ctx.viral_segments.get("segments"):
             logger.error(i18n("Error: No viral segments were generated."))
             logger.error(i18n("Possible reasons: API error, Model not found, or empty response."))
-            logger.error(i18n("Stopping execution."))
-            sys.exit(1)
+            raise PipelineError(i18n("No viral segments were generated."))
 
         save_json.save_viral_segments(ctx.viral_segments, project_folder=ctx.project_folder)
         ctx.viral_segments["segments"] = [
@@ -585,9 +584,10 @@ def stage_subtitles(ctx: PipelineContext) -> None:
     try:
         adjust_subtitles.adjust(project_folder=ctx.project_folder, **ctx.sub_config)
     except FileNotFoundError as fnf_error:
-        logger.error(i18n("[ERROR] Subtitle processing failed: {}").format(str(fnf_error)))
-        logger.info(i18n("Tip: If you are using Workflow 3 (Subtitles Only), ensure the 'subs' folder exists and contains valid JSON files."))
-        sys.exit(1)
+        raise PipelineError(
+            i18n("[ERROR] Subtitle processing failed: {}").format(str(fnf_error))
+            + "\n" + i18n("Tip: If you are using Workflow 3 (Subtitles Only), ensure the 'subs' folder exists and contains valid JSON files.")
+        ) from fnf_error
     except Exception as e:
         logger.error(i18n("[ERROR] Unexpected error during subtitle processing: {}").format(str(e)))
         raise e

@@ -1,6 +1,7 @@
 """Tests for pipeline decomposition: cli, context, input_resolver, config_prompts, runner."""
 from __future__ import annotations
 
+import os
 import sys
 from argparse import Namespace
 from pathlib import Path
@@ -241,18 +242,18 @@ class TestInputResolver:
         assert ctx.input_video == expected_video
 
     def test_resolve_input_project_path_not_exists(self):
-        """Non-existent project_path must call sys.exit(1)."""
+        """Non-existent project_path must raise PipelineError."""
+        from scripts.pipeline.errors import PipelineError
+
         args = _default_args(project_path="/nonexistent/path/that/does/not/exist")
 
         with (
             patch("scripts.pipeline.input_resolver.i18n", side_effect=lambda x: x),
             patch("os.path.exists", return_value=False),
-            pytest.raises(SystemExit) as exc_info,
+            pytest.raises(PipelineError),
         ):
             from scripts.pipeline.input_resolver import resolve_input
             resolve_input(args)
-
-        assert exc_info.value.code == 1
 
 
 # ---------------------------------------------------------------------------
@@ -423,13 +424,182 @@ class TestRunner:
         ):
             all_stage_mocks[name].assert_called_once_with(ctx)
 
-    def test_run_pipeline_error_exits(self, all_stage_mocks: dict):
-        """Any stage raising an exception must cause sys.exit(1)."""
+    def test_run_pipeline_error_propagates(self, all_stage_mocks: dict):
+        """Any stage raising an exception must propagate (caller handles it)."""
         ctx = self._make_ctx(workflow="1")
         all_stage_mocks["stage_download"].side_effect = RuntimeError("network error")
 
         from scripts.pipeline.runner import run_pipeline
-        with pytest.raises(SystemExit) as exc_info:
+        with pytest.raises(RuntimeError, match="network error"):
             run_pipeline(ctx)
 
-        assert exc_info.value.code == 1
+
+# ---------------------------------------------------------------------------
+# TestPipelineError
+# ---------------------------------------------------------------------------
+
+class TestPipelineError:
+    """Tests for PipelineError in scripts/pipeline/errors.py."""
+
+    def test_pipeline_error_is_exception(self):
+        from scripts.pipeline.errors import PipelineError
+
+        assert issubclass(PipelineError, Exception)
+
+    def test_pipeline_error_message(self):
+        from scripts.pipeline.errors import PipelineError
+
+        err = PipelineError("something went wrong")
+        assert str(err) == "something went wrong"
+
+
+# ---------------------------------------------------------------------------
+# TestPipelineBridge
+# ---------------------------------------------------------------------------
+
+class TestPipelineBridge:
+    """Tests for gui_params_to_namespace() and build_context_from_dict() in webui/pipeline_bridge.py."""
+
+    def test_gui_params_to_namespace_defaults(self):
+        """Empty dict returns a Namespace whose fields match build_parser defaults."""
+        from webui.pipeline_bridge import gui_params_to_namespace
+
+        ns = gui_params_to_namespace({})
+
+        assert ns.min_duration == 15
+        assert ns.max_duration == 90
+        assert ns.workflow == "1"
+        assert ns.url is None
+        assert ns.viral is False
+
+    def test_gui_params_to_namespace_overrides(self):
+        """Providing url='x' in the dict overrides the None default."""
+        from webui.pipeline_bridge import gui_params_to_namespace
+
+        ns = gui_params_to_namespace({"url": "x"})
+
+        assert ns.url == "x"
+
+    def test_gui_params_to_namespace_ignores_none(self):
+        """None values in the dict must NOT override the parser defaults."""
+        from webui.pipeline_bridge import gui_params_to_namespace
+
+        ns = gui_params_to_namespace({"min_duration": None})
+
+        assert ns.min_duration == 15
+
+    def test_build_context_from_dict_forces_skip_prompts(self):
+        """build_context_from_dict must always set skip_prompts=True on the Namespace."""
+        from webui.pipeline_bridge import build_context_from_dict
+
+        captured: list[Namespace] = []
+
+        def fake_resolve_input(ns: Namespace):
+            captured.append(ns)
+            args = _default_args(skip_prompts=ns.skip_prompts)
+            return PipelineContext(args=args)
+
+        with (
+            patch("webui.pipeline_bridge.resolve_input", side_effect=fake_resolve_input),
+            patch("webui.pipeline_bridge.resolve_config", side_effect=lambda ctx: ctx),
+        ):
+            build_context_from_dict({})
+
+        assert len(captured) == 1
+        assert captured[0].skip_prompts is True
+
+
+# ---------------------------------------------------------------------------
+# TestPipelineWorker
+# ---------------------------------------------------------------------------
+
+class TestPipelineWorker:
+    """Tests for pipeline_worker() in webui/pipeline_worker.py.
+
+    The worker function is called directly (no subprocess) so that mocks work.
+    """
+
+    def _make_queue(self):
+        """Return a real multiprocessing.Queue (works in-process too)."""
+        import queue
+        return queue.SimpleQueue()
+
+    def test_worker_sends_done_on_success(self):
+        """On success, the queue must receive a message with type='done'."""
+        from webui.pipeline_worker import pipeline_worker
+
+        q = self._make_queue()
+        fake_ctx = MagicMock()
+        fake_ctx.project_folder = "/tmp/project"
+
+        # The worker does `from webui.pipeline_bridge import build_context_from_dict`
+        # and `from scripts.pipeline.runner import run_pipeline` inside the try block.
+        # Patch the names at the source modules so the local `from … import` picks
+        # up the mocks.
+        with (
+            patch("webui.pipeline_bridge.build_context_from_dict", return_value=fake_ctx),
+            patch("scripts.pipeline.runner.run_pipeline"),
+        ):
+            pipeline_worker(
+                args_dict={},
+                progress_q=q,
+                env_vars={},
+                working_dir=str(PROJECT_ROOT),
+            )
+
+        msg = q.get()
+        assert msg["type"] == "done"
+        assert msg["project_folder"] == "/tmp/project"
+
+    def test_worker_sends_error_on_exception(self):
+        """When run_pipeline raises RuntimeError, the queue must receive type='error'."""
+        from webui.pipeline_worker import pipeline_worker
+
+        q = self._make_queue()
+        fake_ctx = MagicMock()
+        fake_ctx.project_folder = ""
+
+        with (
+            patch("webui.pipeline_bridge.build_context_from_dict", return_value=fake_ctx),
+            patch("scripts.pipeline.runner.run_pipeline", side_effect=RuntimeError("boom")),
+        ):
+            pipeline_worker(
+                args_dict={},
+                progress_q=q,
+                env_vars={},
+                working_dir=str(PROJECT_ROOT),
+            )
+
+        msg = q.get()
+        assert msg["type"] == "error"
+        assert "boom" in msg["text"]
+
+    def test_worker_sets_env_vars(self):
+        """env_vars dict must be applied to os.environ before the pipeline runs.
+
+        os.environ.update(env_vars) is the very first statement in pipeline_worker,
+        so we simply check that the key is present in os.environ after the call.
+        """
+        from webui.pipeline_worker import pipeline_worker
+
+        q = self._make_queue()
+        fake_ctx = MagicMock()
+        fake_ctx.project_folder = ""
+
+        # Remove the key first so the assertion cannot be a false positive.
+        os.environ.pop("MY_TEST_KEY", None)
+
+        with (
+            patch("webui.pipeline_bridge.build_context_from_dict", return_value=fake_ctx),
+            patch("scripts.pipeline.runner.run_pipeline"),
+        ):
+            pipeline_worker(
+                args_dict={},
+                progress_q=q,
+                env_vars={"MY_TEST_KEY": "hello"},
+                working_dir=str(PROJECT_ROOT),
+            )
+
+        assert os.environ.get("MY_TEST_KEY") == "hello"
+        # Cleanup so the key does not bleed into other tests.
+        os.environ.pop("MY_TEST_KEY", None)

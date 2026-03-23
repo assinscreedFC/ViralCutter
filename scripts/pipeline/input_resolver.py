@@ -4,11 +4,11 @@ from __future__ import annotations
 import json
 import logging
 import os
-import sys
 
 from i18n.i18n import I18nAuto
 from scripts.models import Segment
 from scripts.pipeline.context import PipelineContext
+from scripts.pipeline.errors import PipelineError
 
 logger = logging.getLogger(__name__)
 i18n = I18nAuto()
@@ -38,8 +38,7 @@ def resolve_input(args) -> PipelineContext:
             else:
                 input_video = os.path.join(project_path_arg, "dummy_input.mp4")
         else:
-            logger.error(i18n("Error: Provided project path does not exist."))
-            sys.exit(1)
+            raise PipelineError(i18n("Error: Provided project path does not exist."))
 
     # If no URL and no project path, prompt or use latest
     if not url and not project_path_arg:
@@ -61,14 +60,11 @@ def resolve_input(args) -> PipelineContext:
                     input_video = detected_video
                     logger.info(i18n("Using latest project: {}").format(latest_project))
                 else:
-                    logger.error(i18n("Latest project found but 'input.mp4' is missing."))
-                    sys.exit(1)
+                    raise PipelineError(i18n("Latest project found but 'input.mp4' is missing."))
             else:
-                logger.error(i18n("No existing projects found in VIRALS folder."))
-                sys.exit(1)
+                raise PipelineError(i18n("No existing projects found in VIRALS folder."))
         else:
-            logger.error(i18n("VIRALS folder not found. Cannot load latest project."))
-            sys.exit(1)
+            raise PipelineError(i18n("VIRALS folder not found. Cannot load latest project."))
 
     # Early check for existing viral segments
     viral_segments = None
