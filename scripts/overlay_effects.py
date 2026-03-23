@@ -23,23 +23,8 @@ except ImportError:
 # Helper
 # ---------------------------------------------------------------------------
 
-def _get_duration(video_path: str) -> float:
-    """Get video duration in seconds via ffprobe."""
-    cmd = [
-        "ffprobe", "-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "json",
-        video_path,
-    ]
-    try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, check=True, timeout=30,
-        )
-        data = json.loads(result.stdout)
-        return float(data["format"]["duration"])
-    except (subprocess.CalledProcessError, KeyError, ValueError, json.JSONDecodeError) as e:
-        logger.error("Failed to get duration for %s: %s", video_path, e)
-        return 0.0
+# Moved to scripts.ffmpeg_utils.
+from scripts.ffmpeg_utils import get_video_duration
 
 
 # ---------------------------------------------------------------------------
@@ -67,7 +52,7 @@ def add_progress_bar(
         logger.error("Invalid bar_position: %s", bar_position)
         return False
 
-    duration = _get_duration(input_path)
+    duration = get_video_duration(input_path)
     if duration <= 0:
         logger.error("Cannot add progress bar: invalid duration")
         return False
@@ -118,7 +103,7 @@ def add_transition(
         logger.error("Unsupported transition '%s'. Use one of %s", transition_type, _SUPPORTED_TRANSITIONS)
         return False
 
-    dur_a = _get_duration(video_a)
+    dur_a = get_video_duration(video_a)
     if dur_a <= 0:
         logger.error("Cannot compute xfade offset: invalid duration for %s", video_a)
         return False

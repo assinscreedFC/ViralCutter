@@ -16,19 +16,8 @@ _FACE_CASCADE = cv2.CascadeClassifier(
 )
 
 
-def get_video_duration(video_path: str) -> float:
-    """Get video duration in seconds via ffprobe."""
-    cmd = [
-        "ffprobe", "-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        video_path,
-    ]
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        return float(result.stdout.strip())
-    except (subprocess.CalledProcessError, ValueError):
-        return 0.0
+# Moved to scripts.ffmpeg_utils — import kept for backward compatibility.
+from scripts.ffmpeg_utils import get_video_duration  # noqa: F401
 
 
 def detect_silences(video_path: str, noise_db: float = -30, min_duration: float = 0.3) -> list[dict]:

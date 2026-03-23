@@ -33,6 +33,7 @@ from scripts import (
     organize_output,
     translate_json,
 )
+from scripts.config import load_api_config
 from i18n.i18n import I18nAuto
 
 # Inicializa sistema de tradução
@@ -313,6 +314,7 @@ def main() -> None:
     themes = ""
     ai_backend = "manual" # default
     api_key = None
+    loaded_cfg = load_api_config()  # centralized config (project_folder not yet available)
     
     if not viral_segments:
         num_segments = args.segments
@@ -351,22 +353,22 @@ def main() -> None:
                  except ValueError:
                      logger.warning(i18n("Invalid number. Using previous values."))
 
-        # Load API Config
-        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'api_config.json')
+        # Load API Config — raw dict kept for model-name lookups later
+        _raw_cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'api_config.json')
         api_config = {}
-        if os.path.exists(config_path):
+        if os.path.exists(_raw_cfg_path):
             try:
-                with open(config_path, 'r', encoding='utf-8') as f:
+                with open(_raw_cfg_path, 'r', encoding='utf-8') as f:
                     api_config = json.load(f)
             except (json.JSONDecodeError, OSError):
                 pass
 
         # Seleção do Backend de IA
         ai_backend = args.ai_backend
-        
-        # Try to load backend from config if not in args
-        if not ai_backend and api_config.get("selected_api"):
-            ai_backend = api_config.get("selected_api")
+
+        # Try to load backend from centralized config if not in args
+        if not ai_backend and loaded_cfg.get("backend"):
+            ai_backend = loaded_cfg["backend"]
             logger.info(i18n("Using AI Backend from config: {}").format(ai_backend))
 
         if not ai_backend:
@@ -418,11 +420,9 @@ def main() -> None:
                     ai_backend = "manual"
 
         api_key = args.api_key or os.getenv("GEMINI_API_KEY", "")
-        # Check config for API Key if using Gemini
-        if ai_backend == "gemini" and not api_key:
-            cfg_key = api_config.get("gemini", {}).get("api_key", "")
-            if cfg_key and cfg_key != "SUA_KEY_AQUI":
-                api_key = cfg_key
+        # Use centralized config api_key as fallback
+        if not api_key:
+            api_key = loaded_cfg.get("api_key", "")
         
         if ai_backend == "gemini" and not api_key:
              if args.skip_prompts:
@@ -432,41 +432,21 @@ def main() -> None:
                  api_key = input(i18n("Enter your Gemini API Key: ")).strip()
 
     # Si les segments étaient déjà chargés, ai_backend est resté "manual" car le bloc de config a été sauté.
-    # Priorité : 1) args.ai_backend (CLI / WebUI), 2) api_config.json selected_api
+    # Priorité : 1) args.ai_backend (CLI / WebUI), 2) load_api_config() resolved backend
     if ai_backend == "manual":
         # 1) L'argument CLI/WebUI a la priorité absolue
         if args.ai_backend and args.ai_backend != "manual":
             ai_backend = args.ai_backend
-            if ai_backend == "gemini" and not api_key:
-                _cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'api_config.json')
-                if os.path.exists(_cfg_path):
-                    try:
-                        with open(_cfg_path, 'r', encoding='utf-8') as _f:
-                            _cfg = json.load(_f)
-                        _key = _cfg.get("gemini", {}).get("api_key", "")
-                        if _key and _key not in ("", "SUA_KEY_AQUI"):
-                            api_key = _key
-                        if not args.ai_model_name:
-                            args.ai_model_name = _cfg.get("gemini", {}).get("model")
-                    except Exception:
-                        pass
         else:
-            # 2) Fallback : lire api_config.json
-            _cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'api_config.json')
-            if os.path.exists(_cfg_path):
-                try:
-                    with open(_cfg_path, 'r', encoding='utf-8') as _f:
-                        _cfg = json.load(_f)
-                    _loaded_backend = _cfg.get("selected_api", "")
-                    if _loaded_backend and _loaded_backend != "manual":
-                        ai_backend = _loaded_backend
-                        _key = _cfg.get(ai_backend, {}).get("api_key", "")
-                        if _key and _key not in ("", "SUA_KEY_AQUI"):
-                            api_key = _key
-                        if not args.ai_model_name:
-                            args.ai_model_name = _cfg.get(ai_backend, {}).get("model")
-                except Exception:
-                    pass
+            # 2) Fallback : utiliser le backend résolu par load_api_config()
+            cfg_backend = loaded_cfg.get("backend", "")
+            if cfg_backend and cfg_backend != "manual":
+                ai_backend = cfg_backend
+        # Resolve api_key and model_name from centralized config
+        if not api_key:
+            api_key = loaded_cfg.get("api_key", "")
+        if not args.ai_model_name:
+            args.ai_model_name = loaded_cfg.get("model_name", "")
 
     # Workflow & Face Config Inputs
     workflow_choice = args.workflow
