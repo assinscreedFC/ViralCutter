@@ -1,4 +1,5 @@
 from datetime import timedelta
+import json
 import subprocess
 
 def timestamp_to_srt(seconds):
@@ -50,24 +51,28 @@ def json_to_srt(json_data):
     return srt_content
 
 def get_video_dims(vid_path):
-    """Returns (width, height, duration_frames)"""
+    """Returns (width, height, duration_frames, fps)"""
     try:
-        cmd_w = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width", "-of", "default=noprint_wrappers=1:nokey=1", vid_path]
-        width = int(subprocess.check_output(cmd_w).decode().strip())
-        
-        cmd_h = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=height", "-of", "default=noprint_wrappers=1:nokey=1", vid_path]
-        height = int(subprocess.check_output(cmd_h).decode().strip())
-        
-        cmd_dur = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", vid_path]
-        dur_sec = float(subprocess.check_output(cmd_dur).decode().strip())
-        
-        # Assume 30fps for calculation if not probed, but probing is better
-        cmd_fps = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate", "-of", "default=noprint_wrappers=1:nokey=1", vid_path]
-        fps_str = subprocess.check_output(cmd_fps).decode().strip()
-        num, den = map(int, fps_str.split('/'))
+        cmd = [
+            "ffprobe", "-v", "quiet",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height,r_frame_rate:format=duration",
+            "-of", "json",
+            vid_path,
+        ]
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, check=True,
+        )
+        data = json.loads(result.stdout)
+        stream = data["streams"][0]
+        width = int(stream["width"])
+        height = int(stream["height"])
+        fps_str = stream["r_frame_rate"]  # e.g. "30000/1001"
+        num, den = map(int, fps_str.split("/"))
         fps = num / den if den > 0 else 30.0
-        
-        return width, height, int(dur_sec * fps), fps
+        duration = float(data["format"]["duration"])
+
+        return width, height, int(duration * fps), fps
     except Exception as e:
         print(f"Error probing video: {e}")
         return 1920, 1080, 300, 30.0
