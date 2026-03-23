@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import os
 import re
-import subprocess
+from scripts.run_cmd import run as run_cmd
 
 import cv2
 import numpy as np
@@ -27,7 +27,7 @@ def detect_silences(video_path: str, noise_db: float = -30, min_duration: float 
         "-af", f"silencedetect=noise={noise_db}dB:d={min_duration}",
         "-f", "null", "-",
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = run_cmd(cmd, check=False, text=True)
     if result.returncode not in (0, 1):
         logger.warning(f"ffmpeg silencedetect failed (rc={result.returncode}): {result.stderr[-300:]}")
         return []

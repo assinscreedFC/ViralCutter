@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from scripts import cut_json
 import os
-import subprocess
+from scripts.run_cmd import run as run_cmd
 import json
 
 logger = logging.getLogger(__name__)
@@ -178,11 +178,11 @@ def cut(
                 ]
 
                 try:
-                    subprocess.run(command, check=True, capture_output=True, text=True)
+                    run_cmd(command, text=True)
                     if os.path.exists(output_path):
                         file_size = os.path.getsize(output_path)
                         logger.info(f"Generated segment: {output_filename}, Size: {file_size} bytes")
-                except subprocess.CalledProcessError as e:
+                except Exception as e:
                     logger.error(f"Error executing ffmpeg: {e}")
             else:
                 logger.info(f"Skipping video generation for {output_filename} (using existing). check json...")

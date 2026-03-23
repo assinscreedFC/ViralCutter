@@ -5,8 +5,9 @@ import json
 import logging
 import os
 import re
-import subprocess
 import tempfile
+
+from scripts.run_cmd import run as run_cmd
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -71,11 +72,11 @@ def add_progress_bar(
         output_path,
     ]
     try:
-        subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=600)
+        run_cmd(cmd, text=True)
         logger.info("Progress bar added → %s", output_path)
         return True
-    except subprocess.CalledProcessError as e:
-        logger.error("add_progress_bar failed: %s", e.stderr[:500] if e.stderr else e)
+    except Exception as e:
+        logger.error("add_progress_bar failed: %s", e)
         return False
 
 
@@ -120,11 +121,11 @@ def add_transition(
         output,
     ]
     try:
-        subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=600)
+        run_cmd(cmd, text=True)
         logger.info("Transition '%s' applied → %s", transition_type, output)
         return True
-    except subprocess.CalledProcessError as e:
-        logger.error("add_transition failed: %s", e.stderr[:500] if e.stderr else e)
+    except Exception as e:
+        logger.error("add_transition failed: %s", e)
         return False
 
 
@@ -252,12 +253,12 @@ def add_emoji_overlay(
             "-c:a", "copy",
             output_path,
         ]
-        subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=600)
+        run_cmd(cmd, text=True)
         logger.info("Emoji overlay applied (%d emojis) → %s", len(emojis), output_path)
         return True
 
-    except subprocess.CalledProcessError as e:
-        logger.error("add_emoji_overlay failed: %s", e.stderr[:500] if e.stderr else e)
+    except Exception as e:
+        logger.error("add_emoji_overlay failed: %s", e)
         return False
     finally:
         for p in png_paths:

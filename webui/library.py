@@ -280,7 +280,8 @@ def generate_project_gallery(project_path_name: str | None, is_full_path: bool =
                     val = int(score)
                     if val < 70: score_color = "#ef4444" 
                     elif val < 85: score_color = "#eab308"
-            except: pass
+            except (ValueError, KeyError):
+                logger.debug("Score parsing failed", exc_info=True)
 
             # TikTok caption block (vide si pas de caption)
             if tiktok_caption:

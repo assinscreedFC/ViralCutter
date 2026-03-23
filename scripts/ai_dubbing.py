@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import subprocess
+from scripts.run_cmd import run as run_cmd
 import tempfile
 from pathlib import Path
 
@@ -126,7 +126,7 @@ def dub_segment(
             "-c:a", "aac",
             output_path,
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        result = run_cmd(cmd, check=False, text=True, timeout=120)
         if result.returncode != 0:
             logger.error("ffmpeg mixing failed: %s", result.stderr[:500])
             return False

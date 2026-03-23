@@ -6,6 +6,8 @@ import os
 import subprocess
 import tempfile
 
+from scripts.run_cmd import run as run_cmd
+
 logger = logging.getLogger(__name__)
 
 # atempo filter range in ffmpeg
@@ -133,7 +135,7 @@ def apply_speed_ramp(
     ]
 
     try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        run_cmd(cmd, text=True)
         logger.info("Speed ramp applied: %s", output_path)
         return True
     except subprocess.CalledProcessError as e:

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import io
 import logging
-import subprocess
+from scripts.run_cmd import run as run_cmd
 
 import numpy as np
 
@@ -31,8 +31,8 @@ def compute_audio_energy_rms(video_path: str, start: float = 0.0, duration: floa
     ]
 
     try:
-        result = subprocess.run(cmd, capture_output=True, check=True)
-    except subprocess.CalledProcessError:
+        result = run_cmd(cmd)
+    except Exception:
         logger.warning(f"Could not extract audio from {video_path}")
         return 0.0
 

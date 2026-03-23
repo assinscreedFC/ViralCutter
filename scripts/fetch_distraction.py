@@ -31,6 +31,8 @@ import random
 import time
 import argparse
 
+from scripts.run_cmd import run as run_cmd
+
 logger = logging.getLogger(__name__)
 
 # Dossier de destination par défaut
@@ -181,7 +183,7 @@ def _download_search(query: str, distraction_dir: str) -> int:
 
     before = set(_video_files_in(distraction_dir))
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        result = run_cmd(cmd, text=True, check=False)
         if result.returncode not in (0, 1):
             logger.warning(f"[WARN] yt-dlp exit {result.returncode} : {result.stderr[:300]}")
     except subprocess.TimeoutExpired:
@@ -229,7 +231,7 @@ def _download_channel(source: dict, distraction_dir: str, count: int) -> int:
 
     before = set(_video_files_in(distraction_dir))
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        result = run_cmd(cmd, text=True, check=False)
         if result.returncode not in (0, 1):
             logger.warning(f"[WARN] yt-dlp exit {result.returncode} : {result.stderr[:300]}")
     except subprocess.TimeoutExpired:

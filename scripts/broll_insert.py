@@ -6,8 +6,9 @@ from __future__ import annotations
 import json
 import logging
 import os
-import subprocess
 from urllib.parse import quote
+
+from scripts.run_cmd import run as run_cmd
 
 import cv2
 import numpy as np
@@ -26,10 +27,10 @@ def _has_audio_stream(video_path: str) -> bool:
         video_path,
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = run_cmd(cmd, check=False, text=True, timeout=30)
         data = json.loads(result.stdout)
         return bool(data.get("streams"))
-    except (subprocess.SubprocessError, json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError, Exception):
         return False
 
 
@@ -215,9 +216,7 @@ def insert_broll(
             output_path,
         ]
 
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=300
-        )
+        result = run_cmd(cmd, check=False, text=True, timeout=300)
         if result.returncode != 0:
             logger.error("ffmpeg failed: %s", result.stderr[-500:] if result.stderr else "unknown")
             return False
@@ -225,9 +224,6 @@ def insert_broll(
         logger.info("B-roll inserted -> %s", output_path)
         return True
 
-    except subprocess.TimeoutExpired:
-        logger.error("ffmpeg timed out for %s", output_path)
-        return False
-    except (OSError, subprocess.SubprocessError) as e:
+    except Exception as e:
         logger.error("insert_broll error: %s", e, exc_info=True)
         return False

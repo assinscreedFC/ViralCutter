@@ -93,7 +93,7 @@ def generate_captions_for_project(proj_name: str):
                         api_key = api_cfg.get(ai_mode, {}).get("api_key") or ""
                         model_name = _settings.get("ai_model_name") or api_cfg.get(ai_mode, {}).get("model")
                 except Exception:
-                    pass
+                    logger.debug("Failed to load settings.json fallback", exc_info=True)
 
         # Trouver le dossier projet
         project_folder = os.path.join(VIRALS_DIR, proj_name) if not os.path.isabs(proj_name) else proj_name
@@ -110,7 +110,7 @@ def generate_captions_for_project(proj_name: str):
                     model_name = proc_cfg.get("ai_config", {}).get("model_name") or api_cfg.get(ai_mode, {}).get("model")
                     api_key = api_cfg.get(ai_mode, {}).get("api_key") or os.getenv("GEMINI_API_KEY") or os.getenv("OPENAI_API_KEY")
             except Exception:
-                pass
+                logger.debug("Failed to load process_config.json for AI backend", exc_info=True)
 
         if ai_mode not in ("gemini", "g4f", "pleiade"):
             return f"Backend '{ai_mode}' ne supporte pas la génération automatique.", None
@@ -173,7 +173,7 @@ def convert_color_to_ass(hex_color, alpha="00"):
                 ret = f"&H{alpha}{b:02X}{g:02X}{r:02X}&".upper()
                 return ret
         except Exception:
-            pass
+            logger.debug("Failed to parse rgb color format", exc_info=True)
 
     # Handle 3-digit hex (e.g. F00 -> FF0000)
     if len(hex_clean) == 3:
@@ -306,6 +306,7 @@ def load_settings():
             data = json.load(f)
         return [gr.update(value=data[k]) if k in data else gr.update() for k in SETTINGS_KEYS]
     except Exception:
+        logger.debug("Failed to load settings file", exc_info=True)
         return [gr.update() for _ in SETTINGS_KEYS]
 
 
@@ -553,8 +554,9 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
             with open(subtitle_config_path, "w", encoding="utf-8") as f:
                 json.dump(subtitle_config, f, indent=4)
             cmd.extend(["--subtitle-config", subtitle_config_path])
-        except Exception: pass 
-    
+        except Exception:
+            logger.debug("Failed to write subtitle config", exc_info=True)
+
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     if api_key:
@@ -596,7 +598,8 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
             if current_process.stdout:
                 try:
                     current_process.stdout.close()
-                except Exception: pass
+                except Exception:
+                    logger.debug("Failed to close process stdout", exc_info=True)
             if current_process.poll() is None:
                 # If we are here, it means we finished reading or errored out, but process is still running.
                 # If it was a normal break from loop, process should be done or close to done.
@@ -604,7 +607,8 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
                 # But here we just wait.
                 try:
                     current_process.wait()
-                except Exception: pass
+                except Exception:
+                    logger.debug("Failed to wait for process termination", exc_info=True)
             current_process = None
     
     # Wait to ensure filesystem flush
@@ -1389,13 +1393,15 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     try:
                         with open(subtitle_config_path, "w", encoding="utf-8") as f:
                             json.dump(subtitle_config, f, indent=4)
-                    except Exception: pass
+                    except Exception:
+                        logger.debug("Failed to write subtitle config for render", exc_info=True)
                 else:
                     # Remove temp config if it exists to ensure defaults are used
                     try:
                         if os.path.exists(subtitle_config_path):
                             os.remove(subtitle_config_path)
-                    except Exception: pass
+                    except Exception:
+                        logger.debug("Failed to remove temp subtitle config", exc_info=True)
                 
                 # We expect user to SAVE first, but we could auto-save.
                 # For now assume saved.
@@ -1437,7 +1443,8 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     try:
                         with open(subtitle_config_path, "w", encoding="utf-8") as f:
                             json.dump(subtitle_config, f, indent=4)
-                    except Exception: pass
+                    except Exception:
+                        logger.debug("Failed to write subtitle config for render_all", exc_info=True)
 
                 proj_path = os.path.join(VIRALS_DIR, proj_name)
                 

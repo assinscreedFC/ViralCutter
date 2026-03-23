@@ -7,6 +7,8 @@ import numpy as np
 import os
 import subprocess
 import mediapipe as mp
+
+from scripts.run_cmd import run as run_cmd
 from typing import Callable
 
 logger = logging.getLogger(__name__)
@@ -70,7 +72,7 @@ def get_best_encoder() -> tuple[str, str]:
     
     try:
         # Check available encoders
-        result = subprocess.run(['ffmpeg', '-hide_banner', '-encoders'], capture_output=True, text=True)
+        result = run_cmd(['ffmpeg', '-hide_banner', '-encoders'], check=False, text=True)
         output = result.stdout
         
         # Priority: NVENC (NVIDIA) > AMF (AMD) > QSV (Intel) > CPU
@@ -239,8 +241,8 @@ def generate_short_fallback(input_file: str, output_file: str, index: int, proje
 def finalize_video(input_file: str, output_file: str, index: int, fps: float, project_folder: str, final_folder: str) -> None:
     """Mux audio and video."""
     audio_file = os.path.join(project_folder, "cuts", f"output-audio-{index}.aac")
-    subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", input_file, "-vn", "-acodec", "copy", audio_file],
-                   check=False, capture_output=True, timeout=600)
+    run_cmd(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", input_file, "-vn", "-acodec", "copy", audio_file],
+            check=False)
 
     if os.path.exists(audio_file) and os.path.getsize(audio_file) > 0:
         final_output = os.path.join(final_folder, f"final-output{str(index).zfill(3)}_processed.mp4")
@@ -255,14 +257,14 @@ def finalize_video(input_file: str, output_file: str, index: int, fps: float, pr
             final_output
         ]
         try:
-            subprocess.run(command, check=True, timeout=600) #, capture_output=True)
+            run_cmd(command)
             logger.info(f"Final file generated: {final_output}")
             try:
                 os.remove(audio_file)
                 os.remove(output_file)
             except OSError:
                 pass  # temp files may already be removed
-        except subprocess.CalledProcessError as e:
+        except Exception as e:
             logger.error(f"Error muxing: {e}")
     else:
         logger.warning(f"Warning: No audio extracted for {input_file}")

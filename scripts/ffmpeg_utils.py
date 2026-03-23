@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import functools
 import logging
-import subprocess
+
+from scripts.run_cmd import run as run_cmd
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +22,9 @@ def get_video_duration(video_path: str) -> float:
         video_path,
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)
+        result = run_cmd(cmd, text=True, timeout=30)
         return float(result.stdout.strip())
-    except (subprocess.CalledProcessError, ValueError, subprocess.TimeoutExpired) as e:
+    except Exception as e:
         logger.warning("Could not get duration for %s: %s", video_path, e)
         return 0.0
 

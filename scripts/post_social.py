@@ -19,12 +19,13 @@ import concurrent.futures
 import json
 import logging
 import os
-import subprocess
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from dotenv import load_dotenv
+
+from scripts.run_cmd import run as run_cmd
 
 load_dotenv()
 
@@ -46,7 +47,7 @@ def validate_clip_for_upload(clip_path: str) -> list[str]:
     try:
         cmd = ["ffprobe", "-v", "quiet", "-print_format", "json",
                "-show_format", "-show_streams", clip_path]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = run_cmd(cmd, text=True, check=False, timeout=30)
         data = json.loads(result.stdout)
 
         duration = float(data.get("format", {}).get("duration", 0))

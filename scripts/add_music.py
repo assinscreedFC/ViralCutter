@@ -15,7 +15,7 @@ Moods reconnus (générés par le LLM via MUSIC_RULES_TEMPLATE) :
 
 import logging
 import os
-import subprocess
+from scripts.run_cmd import run as run_cmd
 import json
 import random
 import time
@@ -284,10 +284,10 @@ def mix_music_to_clip(
 ) -> bool:
     """Mixe la musique de fond avec le clip vidéo via ffmpeg."""
     try:
-        probe = subprocess.run(
+        probe = run_cmd(
             ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
              "-of", "csv=p=0", clip_path],
-            capture_output=True, text=True
+            check=False, text=True
         )
         clip_duration = float(probe.stdout.strip())
         fade_start = max(0, clip_duration - FADE_OUT_DURATION)
@@ -307,10 +307,10 @@ def mix_music_to_clip(
             output_path,
         ]
 
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        run_cmd(cmd, text=True)
         return True
 
-    except subprocess.CalledProcessError as e:
+    except Exception as e:
         logger.error(f"[ERROR] Échec mix musique pour {os.path.basename(clip_path)}: {e}")
         if e.stderr:
             logger.info(f"  ffmpeg: {e.stderr[:200]}")

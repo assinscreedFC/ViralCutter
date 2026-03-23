@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
-import subprocess
+from scripts.run_cmd import run as run_cmd
 import sys
 import tempfile
 
@@ -40,20 +40,20 @@ def burn_video_file(video_path: str, subtitle_path: str, output_path: str) -> tu
             '-c:a', 'copy',
             output_path
         ] + additional_args
-        subprocess.run(cmd, check=True, capture_output=True)
+        run_cmd(cmd)
 
     try:
         try:
             run_ffmpeg("h264_nvenc", "p1")
             return True, "NVENC Success"
-        except subprocess.CalledProcessError as e:
+        except Exception as e:
             logger.error(f"Erro com NVENC ({str(e)}). Tentando CPU (libx264)...")
             try:
                 run_ffmpeg("libx264", "ultrafast")
                 return True, "CPU Success"
-            except subprocess.CalledProcessError as e2:
+            except Exception as e2:
                 err_msg = f"ERRO FATAL ao queimar legendas em {os.path.basename(video_path)}: {e2}"
-                if e2.stderr:
+                if hasattr(e2, 'stderr') and e2.stderr:
                     err_msg += f" | FFmpeg Log: {e2.stderr.decode('utf-8')}"
                 logger.error(err_msg)
                 return False, err_msg

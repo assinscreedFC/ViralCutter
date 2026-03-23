@@ -537,8 +537,6 @@ def render_preview_video(font, size, color, highlight, outline, outline_thick, s
             return gr.update(value=cache_bust_path, autoplay=True)
             
     except Exception as e:
-        logger.error(f"Preview Gen Error: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception("Subtitle preview error")
         
     return None

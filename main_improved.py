@@ -1187,9 +1187,7 @@ def main() -> None:
         logger.info(i18n("Process completed! Check your results in: {}").format(project_folder))
 
     except Exception as e:
-        logger.error(i18n("An error occurred: {}").format(str(e)))
-        import traceback
-        traceback.print_exc()
+        logger.exception("Pipeline failed")
         sys.exit(1)
 
 if __name__ == "__main__":

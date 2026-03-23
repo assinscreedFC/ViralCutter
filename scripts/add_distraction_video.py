@@ -29,6 +29,8 @@ import random
 import json
 import argparse
 
+from scripts.run_cmd import run as run_cmd
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -78,7 +80,7 @@ def _get_video_duration(video_path: str) -> float:
         video_path,
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = run_cmd(cmd, text=True, check=False, timeout=30)
         data = json.loads(result.stdout)
         return float(data["format"]["duration"])
     except Exception:
@@ -199,7 +201,7 @@ def stack_videos(
     ]
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        result = run_cmd(cmd, text=True, check=False)
         if result.returncode != 0:
             logger.error(f"[SPLIT] Erreur FFmpeg : {result.stderr[-500:]}")
             return False

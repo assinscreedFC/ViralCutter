@@ -1,7 +1,8 @@
 import logging
 import os
-import subprocess
 import sys
+
+from scripts.run_cmd import run as run_cmd
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,7 @@ def transcribe(project_folder="tmp"):
         ]
 
         logger.info(f"Transcrevendo: {input_file}...")
-        result = subprocess.run(command, text=True, capture_output=True)
+        result = run_cmd(command, text=True, check=False)
         logger.info(f"Comando executado: {command}")
         
         if result.returncode != 0:

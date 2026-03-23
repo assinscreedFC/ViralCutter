@@ -27,6 +27,8 @@ import json
 import time
 import argparse
 
+from scripts.run_cmd import run as run_cmd
+
 logger = logging.getLogger(__name__)
 
 # Dossier de destination par défaut
@@ -165,7 +167,7 @@ def download_from_source(source: dict, music_dir: str, count: int) -> int:
     before = set(_music_files_in(music_dir))
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        result = run_cmd(cmd, text=True, check=False, timeout=300)
         if result.returncode not in (0, 1):  # 1 = erreurs partielles tolérées
             logger.warning(f"[WARN] yt-dlp exit {result.returncode} : {result.stderr[:300]}")
     except subprocess.TimeoutExpired:

@@ -1,8 +1,11 @@
+import logging
 import os
 import json
 import shutil
 import zipfile
 from .utils import json_to_srt, get_video_dims
+
+logger = logging.getLogger(__name__)
 from .face_detection import detect_faces_jit
 from .rendering import render_segmented_overlays
 from .xml_generator import create_premiere_xml
@@ -11,7 +14,7 @@ def export_pack(project_path, segment_index, output_format="premiere"):
     """
     Generates a ZIP Pack for the segment.
     """
-    print(f"Starting Export Pack for Project: {os.path.basename(project_path)}, Segment: {segment_index}")
+    logger.info(f"Starting Export Pack for Project: {os.path.basename(project_path)}, Segment: {segment_index}")
     
     # Paths
     proj_name = os.path.basename(project_path)
@@ -32,10 +35,10 @@ def export_pack(project_path, segment_index, output_format="premiere"):
                  break
     
     if not video_file:
-        print(f"Error: No video file found for segment {segment_index} in {cut_dir}")
+        logger.error(f"No video file found for segment {segment_index} in {cut_dir}")
         return
         
-    print(f"Selected Video: {video_file}")
+    logger.info(f"Selected Video: {video_file}")
 
     # 2. IDENTIFY SUBTITLE FILES
     subs_dir = os.path.join(project_path, "subs_ass")
@@ -86,13 +89,13 @@ def export_pack(project_path, segment_index, output_format="premiere"):
                 try:
                     with open(os.path.join(final_dir, f), 'r') as fd:
                         face_data = json.load(fd)
-                        print(f"Found Face Coordinates: {f}")
+                        logger.debug(f"Found Face Coordinates: {f}")
                 except Exception as e:
-                    print(f"Face coords load error: {e}")
+                    logger.debug(f"Face coords load error: {e}")
                 break
     
     if face_data is None:
-        print("No pre-computed face data found. Attempting JIT detection...")
+        logger.info("No pre-computed face data found. Attempting JIT detection...")
         face_data = detect_faces_jit(video_file)
 
     # 3. PREPARE STAGING
@@ -129,11 +132,11 @@ def export_pack(project_path, segment_index, output_format="premiere"):
                          break
         
         if os.path.exists(original_scale_candidate):
-            print(f"Using Original Scale Source for Export: {original_scale_candidate}")
+            logger.info(f"Using Original Scale Source for Export: {original_scale_candidate}")
             source_video_to_copy = original_scale_candidate
             dest_filename = "video_source.mp4" # Distinct name
     except Exception as e:
-        print(f"Error checking for original scale video: {e}")
+        logger.debug(f"Error checking for original scale video: {e}")
     
     dest_video = os.path.join(stage_dir, dest_filename)
     shutil.copy2(source_video_to_copy, dest_video)
@@ -161,9 +164,9 @@ def export_pack(project_path, segment_index, output_format="premiere"):
                  overlay_segments = render_segmented_overlays(ass_file, jdata_segs, video_file, captions_dir)
              
          except Exception as e:
-             print(f"Error preparing overlay segments: {e}")
+             logger.debug(f"Error preparing overlay segments: {e}")
     else:
-        print("Missing ASS or JSON for subtitles. Skipping overlays.")
+        logger.info("Missing ASS or JSON for subtitles. Skipping overlays.")
 
     # 6. GENERATE SRT (Standard)
     dest_srt = os.path.join(stage_dir, f"{proj_name}_Seg{segment_index}.srt")
@@ -176,7 +179,8 @@ def export_pack(project_path, segment_index, output_format="premiere"):
             srt_content = json_to_srt(jdata_srt)
             with open(dest_srt, 'w', encoding='utf-8') as f:
                 f.write(srt_content)
-        except Exception: pass
+        except Exception:
+            logger.debug("Failed to generate SRT file", exc_info=True)
 
     # 7. GENERATE XML
     width_src, height_src, frames, fps = get_video_dims(dest_video)
@@ -188,13 +192,13 @@ def export_pack(project_path, segment_index, output_format="premiere"):
             for f in entry.get('faces', []):
                 if len(f) >= 3 and f[2] > max_x: max_x = f[2]
         if max_x > width_src:
-            print(f"Correction: Detecting 4K source based on face coords ({max_x} > {width_src})")
+            logger.info(f"Correction: Detecting 4K source based on face coords ({max_x} > {width_src})")
             width_src = 3840
             height_src = 2160
          # 6. XML GENERATION
     width, height, duration, fps = get_video_dims(video_file)
     
-    print(f"DEBUG: Passing face_data to XML: {len(face_data) if face_data else 'None'}")
+    logger.debug(f"Passing face_data to XML: {len(face_data) if face_data else 'None'}")
     
     # Logic to Determine Sequence Resolution
     # Default 1080p Vertical
@@ -205,11 +209,11 @@ def export_pack(project_path, segment_index, output_format="premiere"):
     # Note: width_src from 'get_video_dims' usually returns width. 
     # Normal 4K is 3840x2160.
     if width_src > 3000 or height_src > 3000:
-        print("Detected 4K Source Content. Setting Sequence to 4K Vertical (2160x3840).")
+        logger.info("Detected 4K Source Content. Setting Sequence to 4K Vertical (2160x3840).")
         seq_w = 2160
         seq_h = 3840
     else:
-        print("Source is 1080p or lower. Setting Sequence to 1080p Vertical (1080x1920).")
+        logger.info("Source is 1080p or lower. Setting Sequence to 1080p Vertical (1080x1920).")
 
     xml_content = create_premiere_xml(
         project_name=proj_name, 
@@ -229,12 +233,12 @@ def export_pack(project_path, segment_index, output_format="premiere"):
     with open(xml_output, "w", encoding="utf-8") as f:
         f.write(xml_content)
         
-    print("Generated Custom Premiere XML (Opus-Style Segments).")
+    logger.info("Generated Custom Premiere XML (Opus-Style Segments).")
 
     # 8. ZIP IT
     zip_path = f"{stage_dir}.zip"
     shutil.make_archive(stage_dir, 'zip', stage_dir)
     
-    print(f"SUCCESS: Export Pack created at {zip_path}")
+    logger.info(f"Export Pack created at {zip_path}")
     
     return zip_path

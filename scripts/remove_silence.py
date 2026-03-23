@@ -6,8 +6,9 @@ import json
 import logging
 import os
 import re
-import subprocess
 import tempfile
+
+from scripts.run_cmd import run as run_cmd
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ def detect_silences(video_path: str, noise_db: float = -30, min_duration: float 
         "-af", f"silencedetect=noise={noise_db}dB:d={min_duration}",
         "-f", "null", "-",
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = run_cmd(cmd, check=False, text=True)
     stderr = result.stderr
 
     silences = []
@@ -121,10 +122,10 @@ def remove_silence_from_video(input_path: str, output_path: str, keep_intervals:
     ]
 
     try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        run_cmd(cmd, text=True)
         return True
-    except subprocess.CalledProcessError as e:
-        logger.error(f"ffmpeg silence removal failed: {e.stderr[:500]}")
+    except Exception as e:
+        logger.error(f"ffmpeg silence removal failed: {e}")
         return False
 
 
@@ -147,7 +148,7 @@ def _remove_silence_concat_demuxer(input_path: str, output_path: str, keep_inter
                 "-c:a", "aac", "-b:a", "128k",
                 clip_path,
             ]
-            subprocess.run(cmd, check=True, capture_output=True, text=True)
+            run_cmd(cmd, text=True)
             clip_paths.append(clip_path)
 
         # Write concat list
@@ -164,11 +165,11 @@ def _remove_silence_concat_demuxer(input_path: str, output_path: str, keep_inter
             "-c", "copy",
             output_path,
         ]
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        run_cmd(cmd, text=True)
         return True
 
-    except subprocess.CalledProcessError as e:
-        logger.error(f"ffmpeg concat demuxer failed: {e.stderr[:500]}")
+    except Exception as e:
+        logger.error(f"ffmpeg concat demuxer failed: {e}")
         return False
     finally:
         # Cleanup temp files

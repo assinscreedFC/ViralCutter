@@ -31,7 +31,7 @@ def parse_timestamp(ts_str):
         elif len(parts) == 2:
             return float(parts[0]) * 60 + float(parts[1])
         return 0.0
-    except:
+    except (ValueError, IndexError):
         return 0.0
 
 def load_transcription_for_editor(json_path):
@@ -281,6 +281,5 @@ def render_specific_video(json_full_path):
              return f"Render Failed: {msg}"
 
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Transcription error")
         return f"Critical Error: {e}"

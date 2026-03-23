@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
+from scripts.run_cmd import run as run_cmd
 
 logger = logging.getLogger(__name__)
 
@@ -77,9 +77,9 @@ def apply_lut(
     logger.info("Applying LUT '%s' (intensity=%.2f) to %s", lut_name, intensity, input_path)
 
     try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        run_cmd(cmd, text=True)
         logger.info("Color grading saved to %s", output_path)
         return True
-    except subprocess.CalledProcessError as exc:
-        logger.error("ffmpeg color grading failed: %s", exc.stderr)
+    except Exception as exc:
+        logger.error("ffmpeg color grading failed: %s", getattr(exc, 'stderr', exc))
         return False

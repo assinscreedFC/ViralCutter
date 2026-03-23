@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
+
+from scripts.run_cmd import run as run_cmd
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +45,11 @@ def apply_pip_layout(
     ]
 
     try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        run_cmd(cmd, text=True)
         logger.info("PiP layout saved to %s", output_path)
         return True
-    except subprocess.CalledProcessError as exc:
-        logger.error("PiP layout failed: %s", exc.stderr)
+    except Exception as exc:
+        logger.error("PiP layout failed: %s", exc)
         return False
 
 
@@ -96,9 +97,9 @@ def apply_lower_third(
     ]
 
     try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        run_cmd(cmd, text=True)
         logger.info("Lower third saved to %s", output_path)
         return True
-    except subprocess.CalledProcessError as exc:
-        logger.error("Lower third failed: %s", exc.stderr)
+    except Exception as exc:
+        logger.error("Lower third failed: %s", exc)
         return False
