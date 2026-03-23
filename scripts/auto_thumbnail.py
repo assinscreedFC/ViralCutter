@@ -7,6 +7,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from scripts.frame_utils import downscale_for_analysis
+
 logger = logging.getLogger(__name__)
 
 HAARCASCADE_PATH = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
@@ -63,7 +65,7 @@ def extract_best_frame(video_path: str, sample_count: int = 20) -> tuple[np.ndar
 
     best_score, best_frame, best_ts = -1.0, None, 0.0
     sharpness_values: list[float] = []
-    candidates: list[tuple[np.ndarray, float, float, float, list]] = []
+    candidates: list[tuple[np.ndarray, float, float, float, list, np.ndarray]] = []
 
     try:
         for idx in indices:
@@ -71,12 +73,13 @@ def extract_best_frame(video_path: str, sample_count: int = 20) -> tuple[np.ndar
             ok, frame = cap.read()
             if not ok:
                 continue
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            small, _scale = downscale_for_analysis(frame, max_width=480)
+            gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
             sharpness = _score_sharpness(gray)
             face_score, faces = _score_faces(gray)
             ts = float(idx) / fps
             sharpness_values.append(sharpness)
-            candidates.append((frame, ts, face_score, sharpness, faces))
+            candidates.append((frame, ts, face_score, sharpness, faces, gray))
     finally:
         cap.release()
 
@@ -84,8 +87,7 @@ def extract_best_frame(video_path: str, sample_count: int = 20) -> tuple[np.ndar
         raise RuntimeError(f"No readable frames in {video_path}")
 
     max_sharp = max(sharpness_values) or 1.0
-    for frame, ts, face_score, sharpness, faces in candidates:
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    for frame, ts, face_score, sharpness, faces, gray in candidates:
         norm_sharp = sharpness / max_sharp
         comp_score = _score_composition(gray, faces)
         score = 0.4 * norm_sharp + 0.35 * face_score + 0.25 * comp_score

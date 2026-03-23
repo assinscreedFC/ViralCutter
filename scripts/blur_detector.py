@@ -6,6 +6,8 @@ import logging
 import cv2
 import numpy as np
 
+from scripts.frame_utils import downscale_for_analysis
+
 logger = logging.getLogger(__name__)
 
 
@@ -40,23 +42,22 @@ def detect_blur_frames(
 
     sharpness_values = []
     blurry_timestamps = []
-    frame_idx = 0
+    frame_count = 0
 
-    while frame_idx < total_frames:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+    while frame_count < total_frames:
         ret, frame = cap.read()
         if not ret:
             break
+        if frame_count % frame_step == 0:
+            small, _ = downscale_for_analysis(frame, max_width=360)
+            gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+            laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+            sharpness_values.append(laplacian_var)
 
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
-        sharpness_values.append(laplacian_var)
-
-        if laplacian_var < blur_threshold:
-            timestamp = frame_idx / fps
-            blurry_timestamps.append(round(timestamp, 2))
-
-        frame_idx += frame_step
+            if laplacian_var < blur_threshold:
+                timestamp = frame_count / fps
+                blurry_timestamps.append(round(timestamp, 2))
+        frame_count += 1
 
     cap.release()
 

@@ -8,6 +8,7 @@ import logging
 import os
 from urllib.parse import quote
 
+from scripts.frame_utils import downscale_for_analysis
 from scripts.run_cmd import run as run_cmd
 
 import cv2
@@ -115,7 +116,8 @@ def detect_static_moments(
             break
 
         if frame_idx % frame_step == 0:
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            frame_small, _ = downscale_for_analysis(frame, max_width=360)
+            gray = cv2.cvtColor(frame_small, cv2.COLOR_BGR2GRAY)
             if prev_gray is not None:
                 diff = cv2.absdiff(prev_gray, gray)
                 score = float(np.mean(diff))

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import logging
 
+from scripts.frame_utils import downscale_for_analysis
+
 logger = logging.getLogger(__name__)
 
 # Try importing scenedetect, fallback to OpenCV-based detection
@@ -49,7 +51,7 @@ def detect_scenes_scenedetect(video_path: str, threshold: float = 27.0) -> list[
         return detect_scenes_opencv(video_path, threshold=threshold)
 
 
-def detect_scenes_opencv(video_path: str, threshold: float = 30.0, sample_interval: float = 0.2) -> list[dict]:
+def detect_scenes_opencv(video_path: str, threshold: float = 30.0, sample_interval: float = 0.5) -> list[dict]:
     """Fallback scene detection using OpenCV frame differencing.
 
     Args:
@@ -83,6 +85,7 @@ def detect_scenes_opencv(video_path: str, threshold: float = 30.0, sample_interv
             break
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        gray, _ = downscale_for_analysis(gray, max_width=240)
 
         if prev_gray is not None:
             diff = cv2.absdiff(prev_gray, gray)

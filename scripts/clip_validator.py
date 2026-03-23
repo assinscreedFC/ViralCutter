@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from scripts.frame_utils import downscale_for_analysis
 from scripts.run_cmd import run as run_cmd
 
 import cv2
@@ -138,7 +139,8 @@ def score_visual_variety(
             if not ret:
                 break
 
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            small, _ = downscale_for_analysis(frame, max_width=360)
+            gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
             total_samples += 1
 
             # Scene change detection via frame differencing
