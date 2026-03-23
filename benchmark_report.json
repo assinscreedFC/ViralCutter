@@ -1,0 +1,39 @@
+{
+  "project": "D:\\disc_E\\vscode_pyhton\\python\\ViralCutter\\virals\\QUI EST L'IMPOSTEUR  (ft Theodora & Guy2Bezbar)",
+  "settings": "1",
+  "stages": {
+    "viral_segments": {
+      "elapsed_s": 0.13,
+      "error": null
+    },
+    "cut": {
+      "elapsed_s": 390.33,
+      "error": null
+    },
+    "filler_speed": {
+      "elapsed_s": 167.87,
+      "error": null
+    },
+    "quality": {
+      "elapsed_s": 1921.51,
+      "error": null
+    },
+    "face_edit": {
+      "elapsed_s": 665.53,
+      "error": null
+    },
+    "subtitles": {
+      "elapsed_s": 10.05,
+      "error": null
+    },
+    "post_production": {
+      "elapsed_s": 141.84,
+      "error": null
+    },
+    "save_config": {
+      "elapsed_s": 0.02,
+      "error": null
+    }
+  },
+  "total_s": 3297.29
+}
