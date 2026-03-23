@@ -34,6 +34,7 @@ from scripts import (
     translate_json,
 )
 from scripts.config import load_api_config
+from scripts.models import Segment
 from i18n.i18n import I18nAuto
 
 # Inicializa sistema de tradução
@@ -302,6 +303,9 @@ def main() -> None:
                         viral_segments = json.load(f)
                     logger.info(i18n("Loaded existing viral segments. Skipping configuration prompts."))
                     if viral_segments and "segments" in viral_segments:
+                        viral_segments["segments"] = [
+                            Segment.from_dict(s).to_dict() for s in viral_segments.get("segments", [])
+                        ]
                         logger.debug(f"Loaded {len(viral_segments['segments'])} segments from file.")
                     else:
                         logger.debug("Loaded JSON but 'segments' key is missing or empty.")
@@ -579,7 +583,10 @@ def main() -> None:
                     logger.error(i18n("Stopping execution."))
                     sys.exit(1)
                 
-                save_json.save_viral_segments(viral_segments, project_folder=project_folder) 
+                save_json.save_viral_segments(viral_segments, project_folder=project_folder)
+                viral_segments["segments"] = [
+                    Segment.from_dict(s).to_dict() for s in viral_segments.get("segments", [])
+                ]
 
         # 3.5. Fix Raw Segments (missing timestamps)
         if workflow_choice != "3" and viral_segments and "segments" in viral_segments:
@@ -604,10 +611,13 @@ def main() -> None:
                               output_count=None 
                           )
                           save_json.save_viral_segments(viral_segments, project_folder=project_folder)
+                          viral_segments["segments"] = [
+                              Segment.from_dict(s).to_dict() for s in viral_segments.get("segments", [])
+                          ]
                           logger.info(i18n("Segments aligned and saved."))
                       except Exception as e:
                           logger.error(i18n("Failed to align raw segments: {}").format(e))
-                          # If alignment fails, it might crash later, but we tried. 
+                          # If alignment fails, it might crash later, but we tried.
 
         # 3.6. Génération des captions TikTok (seulement si au moins un segment n'en a pas)
         _segs_for_caption = viral_segments.get("segments", []) if viral_segments else []
@@ -657,6 +667,9 @@ def main() -> None:
                 model_name=args.ai_model_name,
             )
             save_json.save_viral_segments(viral_segments, project_folder=project_folder)
+            viral_segments["segments"] = [
+                Segment.from_dict(s).to_dict() for s in viral_segments.get("segments", [])
+            ]
             logger.info(i18n("{} segments after splitting into parts.").format(
                 len(viral_segments.get("segments", []))))
 
