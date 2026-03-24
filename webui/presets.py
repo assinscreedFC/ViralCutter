@@ -89,7 +89,7 @@ def get_local_models() -> list[str]:
 def apply_face_preset(preset_name: str):
     """Return face-detection parameter values for *preset_name*."""
     if preset_name not in FACE_PRESETS:
-        return [gr.update() for _ in range(8)]  # NEW: 8 outputs instead of 4
+        return [gr.skip() for _ in range(8)]  # NEW: 8 outputs instead of 4
 
     p = FACE_PRESETS[preset_name]
     return (p["thresh"], p["two_face"], p["conf"], p["dead_zone"],
@@ -100,7 +100,7 @@ def apply_face_preset(preset_name: str):
 def apply_experimental_preset(preset_name: str):
     """Return experimental parameter values for *preset_name*."""
     if preset_name not in EXPERIMENTAL_PRESETS:
-        return [gr.update() for _ in range(7)]
+        return [gr.skip() for _ in range(7)]
 
     p = EXPERIMENTAL_PRESETS[preset_name]
     return p["focus"], p["mar"], p["score"], p["motion"], p["motion_th"], p["motion_sens"], p["decay"]

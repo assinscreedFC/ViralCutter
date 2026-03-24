@@ -1043,8 +1043,8 @@ class TestApplyPostProduction:
                 assert "-filter_complex" in cmd
                 fc_idx = cmd.index("-filter_complex")
                 fc = cmd[fc_idx + 1]
-                assert "drawbox" in fc
-                assert "iw*t/10.0" in fc
+                assert "overlay" in fc
+                assert "t/10.0" in fc
                 assert "-c:a" in cmd
                 assert "copy" in cmd[cmd.index("-c:a") + 1]
         finally:
@@ -1081,8 +1081,8 @@ class TestApplyPostProduction:
                 assert result is True
                 cmd = mock_run.call_args[0][0]
                 fc = cmd[cmd.index("-filter_complex") + 1]
-                # Both drawbox and overlay should be present
-                assert "drawbox" in fc
+                # Both progress bar (color+overlay) and emoji overlay should be present
+                assert "color=c=white" in fc
                 assert "overlay=" in fc
                 assert "between(t,1.0,3.0)" in fc
         finally:
@@ -1118,7 +1118,7 @@ class TestApplyPostProduction:
                 # All three effects present
                 assert "lut3d=" in fc
                 assert "blend=" in fc
-                assert "drawbox" in fc
+                assert "color=c=red" in fc
                 assert "overlay=" in fc
                 # Verify chain: LUT tags -> bar tag -> emoji tag (without final tag)
                 assert "[__pp_lut]" in fc
@@ -1198,3 +1198,165 @@ class TestApplyPostProduction:
             assert not os.path.exists(fake_png)
         finally:
             ffu.CACHED_ENCODER = old_cache
+
+
+# ===========================================================================
+# A/B Caption Variants
+# ===========================================================================
+class TestABVariants:
+    """Tests for A/B caption variant generation."""
+
+    def test_modify_hook_text_list_format(self):
+        """Test hook text modification with list format."""
+        from scripts.ab_variants import _modify_hook_text
+        sub_data = [
+            {"word": "Hello", "start": 0.0, "end": 0.5},
+            {"word": "world", "start": 0.5, "end": 1.0},
+            {"word": "test", "start": 1.0, "end": 1.5},
+        ]
+        result = _modify_hook_text(sub_data, "Bonjour monde")
+        assert result[0]["word"] == "Bonjour"
+        assert result[1]["word"] == "monde"
+        assert result[2]["word"] == "test"  # Unchanged
+        # Timing preserved
+        assert result[0]["start"] == 0.0
+        assert result[0]["end"] == 0.5
+
+    def test_modify_hook_text_dict_format(self):
+        """Test hook text modification with dict format."""
+        from scripts.ab_variants import _modify_hook_text
+        sub_data = {
+            "words": [
+                {"word": "Hello", "start": 0.0, "end": 0.5},
+                {"word": "world", "start": 0.5, "end": 1.0},
+            ]
+        }
+        result = _modify_hook_text(sub_data, "New hook text here")
+        assert result["words"][0]["word"] == "New"
+        assert result["words"][1]["word"] == "hook"
+
+    def test_modify_hook_text_empty(self):
+        """Test with empty data."""
+        from scripts.ab_variants import _modify_hook_text
+        result = _modify_hook_text([], "Test")
+        assert result == []
+
+    def test_modify_hook_text_does_not_mutate_original(self):
+        """La fonction ne doit pas muter les donnees originales."""
+        from scripts.ab_variants import _modify_hook_text
+        original = [
+            {"word": "Hello", "start": 0.0, "end": 0.5},
+            {"word": "world", "start": 0.5, "end": 1.0},
+        ]
+        _modify_hook_text(original, "Changed")
+        assert original[0]["word"] == "Hello"
+
+    def test_modify_hook_text_variant_longer_than_words(self):
+        """Variant text plus long que le nombre de mots -> pas de crash."""
+        from scripts.ab_variants import _modify_hook_text
+        sub_data = [{"word": "Hello", "start": 0.0, "end": 0.5}]
+        result = _modify_hook_text(sub_data, "One two three four")
+        assert result[0]["word"] == "One"
+        assert len(result) == 1
+
+    def test_variant_labels(self):
+        """Test variant label generation A, B, C..."""
+        labels = [chr(65 + i) for i in range(5)]
+        assert labels == ["A", "B", "C", "D", "E"]
+
+    def test_generate_variants_no_segments_file(self):
+        """generate_variants retourne [] si pas de viral_segments.txt."""
+        from scripts.ab_variants import generate_variants
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = generate_variants(tmpdir)
+            assert result == []
+
+    def test_generate_variants_no_caption_variants(self):
+        """generate_variants retourne [] si aucun segment n'a caption_variants."""
+        from scripts.ab_variants import generate_variants
+        with tempfile.TemporaryDirectory() as tmpdir:
+            vs = {"segments": [{"title": "Test", "start_time": 0, "end_time": 10}]}
+            with open(os.path.join(tmpdir, "viral_segments.txt"), "w") as f:
+                json.dump(vs, f)
+            result = generate_variants(tmpdir)
+            assert result == []
+
+    def test_find_subtitle_json_by_prefix(self):
+        """_find_subtitle_json trouve par prefixe d'index."""
+        from scripts.ab_variants import _find_subtitle_json
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a file matching the pattern
+            test_file = os.path.join(tmpdir, "000_Some_Title_processed.json")
+            with open(test_file, "w") as f:
+                f.write("{}")
+            result = _find_subtitle_json(tmpdir, 0, {"title": "Different Title"})
+            assert result == test_file
+
+
+# ===========================================================================
+# Tests: _get_animation_tags (Fix 1 — fs instead of fscx/fscy)
+# ===========================================================================
+
+class TestGetAnimationTags:
+    def test_pop_uses_fs_not_fscx(self):
+        from scripts.adjust_subtitles import _get_animation_tags
+        tags = _get_animation_tags("pop", 24)
+        assert "\\fs27" in tags
+        assert "\\fs24" in tags
+        assert "fscx" not in tags
+        assert "fscy" not in tags
+
+    def test_bounce_uses_fs_not_fscx(self):
+        from scripts.adjust_subtitles import _get_animation_tags
+        tags = _get_animation_tags("bounce", 24)
+        assert "\\fs28" in tags  # hl_size + 4
+        assert "\\fs22" in tags  # hl_size - 2
+        assert "\\fs24" in tags  # back to normal
+        assert "fscx" not in tags
+        assert "fscy" not in tags
+
+    def test_fade_pop_uses_fs_not_fscx(self):
+        from scripts.adjust_subtitles import _get_animation_tags
+        tags = _get_animation_tags("fade_pop", 20)
+        assert "\\fs23" in tags
+        assert "\\fs20" in tags
+        assert "\\alpha" in tags
+        assert "fscx" not in tags
+
+    def test_none_returns_empty(self):
+        from scripts.adjust_subtitles import _get_animation_tags
+        assert _get_animation_tags("none", 24) == ""
+
+    def test_unknown_returns_empty(self):
+        from scripts.adjust_subtitles import _get_animation_tags
+        assert _get_animation_tags("unknown_anim", 24) == ""
+
+
+
+# ===========================================================================
+# Tests: face_start_snap stricter params (Fix 3)
+# ===========================================================================
+
+class TestFaceStartSnap:
+    def test_returns_start_time_for_missing_file(self):
+        from scripts.face_start_snap import snap_to_first_face
+        result = snap_to_first_face("/nonexistent/video.mp4", 5.0)
+        assert result == 5.0
+
+    def test_cascade_params_are_strict(self):
+        """Verify the source code uses stricter Haar params (minNeighbors>=6)."""
+        import inspect
+        from scripts import face_start_snap
+        source = inspect.getsource(face_start_snap.snap_to_first_face)
+        assert "minNeighbors=6" in source
+        assert "minSize=(120, 120)" in source
+        assert "scaleFactor=1.1" in source
+
+    def test_aspect_ratio_filter_present(self):
+        """Verify aspect ratio filtering is in the source."""
+        import inspect
+        from scripts import face_start_snap
+        source = inspect.getsource(face_start_snap.snap_to_first_face)
+        assert "0.7" in source
+        assert "1.4" in source
+        assert "min_face_h" in source

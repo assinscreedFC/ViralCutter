@@ -23,6 +23,7 @@ class TestFromDict:
             "tiktok_caption": "#test",
             "zoom_cues": [],
             "power_words": ["amazing"],
+            "caption_variants": ["Hook A", "Hook B"],
             "score": 75.0,
         }
         seg = Segment.from_dict(d)
@@ -34,6 +35,7 @@ class TestFromDict:
         assert seg.tiktok_caption == "#test"
         assert seg.zoom_cues == []
         assert seg.power_words == ["amazing"]
+        assert seg.caption_variants == ["Hook A", "Hook B"]
         assert seg.score == 75.0
 
     def test_from_dict_minimal(self):
@@ -45,6 +47,7 @@ class TestFromDict:
         assert seg.tiktok_caption == ""
         assert seg.zoom_cues == []
         assert seg.power_words == []
+        assert seg.caption_variants == []
         assert seg.score == 0.0
 
     def test_from_dict_missing_keys(self):
@@ -55,6 +58,7 @@ class TestFromDict:
         assert seg.duration == 0.0
         assert seg.title == ""
         assert seg.zoom_cues == []
+        assert seg.caption_variants == []
         assert seg.score == 0.0
 
 
@@ -74,9 +78,22 @@ class TestToDict:
             "tiktok_caption": "#rt",
             "zoom_cues": [{"time": 5.0, "scale": 1.2}],
             "power_words": ["wow"],
+            "caption_variants": ["Direct hook", "Question hook"],
             "score": 90.0,
         }
         assert Segment.from_dict(d).to_dict() == d
+
+    def test_caption_variants_roundtrip(self):
+        """caption_variants survives from_dict -> to_dict without data loss."""
+        variants = ["Hook A", "Hook B", "Hook C"]
+        d = {
+            "start_time": "0", "end_time": "60", "duration": 60.0,
+            "caption_variants": variants,
+        }
+        seg = Segment.from_dict(d)
+        assert seg.caption_variants == variants
+        exported = seg.to_dict()
+        assert exported["caption_variants"] == variants
 
 
 # ===========================================================================

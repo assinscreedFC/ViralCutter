@@ -65,11 +65,17 @@ def save_settings(*values):
 
 def load_settings():
     if not os.path.exists(SETTINGS_FILE):
-        return [gr.update() for _ in SETTINGS_KEYS]
+        return [gr.skip() for _ in SETTINGS_KEYS]
     try:
         with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return [gr.update(value=data[k]) if k in data else gr.update() for k in SETTINGS_KEYS]
+        results = []
+        for k in SETTINGS_KEYS:
+            if k in data and data[k] is not None:
+                results.append(gr.update(value=data[k]))
+            else:
+                results.append(gr.skip())
+        return results
     except Exception:
         logger.debug("Failed to load settings file", exc_info=True)
-        return [gr.update() for _ in SETTINGS_KEYS]
+        return [gr.skip() for _ in SETTINGS_KEYS]

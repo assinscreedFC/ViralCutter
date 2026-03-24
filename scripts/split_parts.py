@@ -238,6 +238,7 @@ def _fallback_split(
             "reasoning": segment.get("reasoning", ""),
             "score": segment.get("score", 0),
             "tiktok_caption": segment.get("tiktok_caption", ""),
+            "caption_variants": segment.get("caption_variants", []),
         })
 
     return parts
@@ -404,6 +405,7 @@ def split_long_segments(
                     "score": segment.get("score", 0),
                     "viral_score": segment.get("viral_score", 0),
                     "tiktok_caption": segment.get("tiktok_caption", ""),
+                    "caption_variants": segment.get("caption_variants", []),
                 })
 
             logger.info(f"[PARTS] Split into {total_parts} parts successfully.")

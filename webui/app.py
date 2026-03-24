@@ -76,7 +76,7 @@ footer {visibility: hidden}
 
 import header
 
-with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_hue="orange", neutral_hue="slate"), css=css, maximum_file_size="2gb") as demo:
+with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_hue="orange", neutral_hue="slate"), css=css) as demo:
     gr.Markdown(header.badges)
     gr.Markdown(header.description)
     with gr.Tabs():
@@ -346,9 +346,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     outputs=preview_vid
                 )
 
-                # Initial load
-                demo.load(subs.generate_preview_html, inputs=manual_inputs, outputs=preview_html)
-                demo.load(subs.apply_preset, inputs=[preset_input], outputs=manual_inputs) # Apply default preset on load
+                # Initial preview is generated after load_settings fires (see demo.load chain below)
 
              with gr.Accordion(i18n("Music Settings"), open=False):
                  add_music_input = gr.Checkbox(label=i18n("Add Background Music"), value=False, info=i18n("Mix royalty-free music from the music/ folder into the clips"))
@@ -712,7 +710,11 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  post_youtube_input, post_tiktok_input, youtube_privacy_input, post_interval_input, post_first_time_input,
              ]
              save_settings_btn.click(save_settings, inputs=_saveable_inputs, outputs=[save_settings_status])
-             demo.load(load_settings, inputs=[], outputs=_saveable_inputs)
+             demo.load(load_settings, inputs=[], outputs=_saveable_inputs).then(
+                 subs.apply_preset, inputs=[preset_input], outputs=manual_inputs
+             ).then(
+                 subs.generate_preview_html, inputs=manual_inputs, outputs=preview_html
+             )
 
 
         with gr.Tab(i18n("Subtitle Editor")):
@@ -1087,7 +1089,8 @@ if __name__ == "__main__":
                 inbrowser=True,
                 server_name="127.0.0.1",
                 server_port=7860,
-                prevent_thread_lock=True
+                prevent_thread_lock=True,
+                max_file_size="2gb"
             )
             attach_extra_routes(app)
             demo.block_thread()

@@ -1072,7 +1072,8 @@ def process_segments(raw_segments: list[dict], transcript_segments: list[dict], 
                 "hook": seg.get('title', ''), 
                 "reasoning": seg.get('reasoning', ''),
                 "score": seg.get('score', 0),
-                "duration": duration
+                "duration": duration,
+                "caption_variants": seg.get('caption_variants', []),
             })
 
         except Exception as e:
@@ -1121,7 +1122,7 @@ def process_segments(raw_segments: list[dict], transcript_segments: list[dict], 
     return final_result
 
 
-def create(num_segments: int | None, viral_mode: bool, themes: str | None, tempo_minimo: int, tempo_maximo: int, ai_mode: str = "manual", api_key: str | None = None, project_folder: str = "tmp", chunk_size_arg: int | str | None = None, model_name_arg: str | None = None, content_type: list[str] | None = None, enable_scoring: bool = True, min_score: int = 70, enable_validation: bool = True, enable_parts: bool = False) -> dict:
+def create(num_segments: int | None, viral_mode: bool, themes: str | None, tempo_minimo: int, tempo_maximo: int, ai_mode: str = "manual", api_key: str | None = None, project_folder: str = "tmp", chunk_size_arg: int | str | None = None, model_name_arg: str | None = None, content_type: list[str] | None = None, enable_scoring: bool = True, min_score: int = 70, enable_validation: bool = True, enable_parts: bool = False, ab_variants: bool = False, num_variants: int = 3) -> dict:
     quantidade_de_virals = num_segments if num_segments is not None else 3
 
     # 1. Load Transcript
@@ -1243,6 +1244,23 @@ OUTPUT JSON ONLY:
         json_template += f'''Rules: integers only for times. Favor {tempo_minimo}-80s clips. Longer OK if story is compelling throughout. Score: 90+ = exceptional (max 1), 75-89 = strong, 60-74 = decent, <60 = skip.'''
     else:
         json_template += f'''Rules: integers only for times. Duration (end - start) must be {tempo_minimo}-{tempo_maximo}s. Target 60-80s. Score: 90+ = exceptional (max 1), 75-89 = strong, 60-74 = decent, <60 = skip.'''
+
+    # A/B caption variants
+    if ab_variants:
+        json_template = json_template.replace(
+            '"score": 75}',
+            '"score": 75, "caption_variants": ["Direct informative hook", "Curiosity question hook", "Emotional shock hook"]}'
+        )
+        from scripts.prompt_sections import AB_VARIANTS_RULES
+        variant_rules = AB_VARIANTS_RULES.format(num_variants=num_variants)
+        # Inject variant rules before the transcript
+        modified = system_prompt_template.replace(
+            "{transcript_chunk}",
+            variant_rules + "\n\n{transcript_chunk}"
+        )
+        if modified == system_prompt_template:
+            logger.warning("[AB] Could not inject variant rules: {transcript_chunk} not found in prompt template")
+        system_prompt_template = modified
 
     # Chunking
     chunk_size = int(current_chunk_size)

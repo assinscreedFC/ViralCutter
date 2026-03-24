@@ -185,13 +185,21 @@ def generate_short_fallback(input_file: str, output_file: str, index: int, proje
         process.wait()
 
 def finalize_video(input_file: str, output_file: str, index: int, fps: float, project_folder: str, final_folder: str) -> None:
-    """Mux audio and video."""
+    """Mux audio and video with 3-level fallback: copy -> re-encode -> video-only."""
     audio_file = os.path.join(project_folder, "cuts", f"output-audio-{index}.aac")
-    run_cmd(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", input_file, "-vn", "-acodec", "copy", audio_file],
-            check=False)
+    final_output = os.path.join(final_folder, f"final-output{str(index).zfill(3)}_processed.mp4")
+
+    # Attempt 1: copy audio stream (fast, zero loss)
+    run_cmd(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+             "-i", input_file, "-vn", "-acodec", "copy", audio_file], check=False)
+
+    # Attempt 2: re-encode to AAC if copy failed
+    if not (os.path.exists(audio_file) and os.path.getsize(audio_file) > 0):
+        logger.warning("Audio copy failed for %s, trying re-encode...", os.path.basename(input_file))
+        run_cmd(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                 "-i", input_file, "-vn", "-c:a", "aac", "-b:a", "192k", audio_file], check=False)
 
     if os.path.exists(audio_file) and os.path.getsize(audio_file) > 0:
-        final_output = os.path.join(final_folder, f"final-output{str(index).zfill(3)}_processed.mp4")
         command = [
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-stats",
             "-i", output_file,
@@ -203,16 +211,27 @@ def finalize_video(input_file: str, output_file: str, index: int, fps: float, pr
         ]
         try:
             run_cmd(command)
-            logger.info(f"Final file generated: {final_output}")
+            logger.info("Final file generated: %s", final_output)
             try:
                 os.remove(audio_file)
                 os.remove(output_file)
             except OSError:
                 pass  # temp files may already be removed
         except Exception as e:
-            logger.error(f"Error muxing: {e}")
+            logger.error("Error muxing: %s — falling back to video-only", e)
+            import shutil
+            shutil.copy2(output_file, final_output)
+            logger.info("Final file generated (video-only fallback): %s", final_output)
     else:
-        logger.warning(f"Warning: No audio extracted for {input_file}")
+        # Attempt 3: video-only output (never drop the clip)
+        logger.warning("No audio in source %s — outputting video-only", os.path.basename(input_file))
+        import shutil
+        shutil.copy2(output_file, final_output)
+        logger.info("Final file generated (no audio): %s", final_output)
+        try:
+            os.remove(output_file)
+        except OSError:
+            pass
 
 
 def calculate_mouth_ratio(landmarks: np.ndarray) -> float:
@@ -957,15 +976,26 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
                 # This prevents switching to a background person if sizes are similar
 
                 # FEAT: Re-ID preferred face selection (1-face mode only)
+                # INVARIANT: Re-ID multi-face lock ONLY applies when target_faces == 1.
+                # When target_faces == 2, detections are handled by the proximity/area sort below.
                 if target_embedding is not None and target_faces == 1:
-                    faces_with_reid = [f for f in faces if f.get('reid_score', 0) > 0.5]
-                    if faces_with_reid:
-                        # Re-ID match found — sort by similarity (best first)
-                        faces_sorted = sorted(faces_with_reid, key=lambda f: f['reid_score'], reverse=True)
-                        # Skip the standard proximity/area sort below
-                        faces_sorted_by_reid = True
+                    if len(faces) >= 2:
+                        # Multi-face: strict Re-ID lock to prevent oscillation
+                        best_reid = max(faces, key=lambda f: f.get('reid_score', 0))
+                        if best_reid.get('reid_score', 0) > 0.45:  # was 0.35 — stricter to prevent oscillation
+                            detections = [best_reid['bbox']]
+                            faces_sorted_by_reid = True
+                        else:
+                            # Fallback to proximity sort (below)
+                            faces_sorted_by_reid = False
                     else:
-                        faces_sorted_by_reid = False
+                        # Single face: keep existing logic
+                        faces_with_reid = [f for f in faces if f.get('reid_score', 0) > 0.5]
+                        if faces_with_reid:
+                            faces_sorted = sorted(faces_with_reid, key=lambda f: f['reid_score'], reverse=True)
+                            faces_sorted_by_reid = True
+                        else:
+                            faces_sorted_by_reid = False
                 else:
                     faces_sorted_by_reid = False
 
@@ -981,10 +1011,10 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
                        def sort_score(f):
                            # Distance score (lower is better)
                            dist = np.sqrt((f['center'][0] - old_center[0])**2 + (f['center'][1] - old_center[1])**2)
+                           # Continuity bonus: strongly prefer the face closest to last tracked position
+                           continuity = -150 if dist < 150 else 0  # was -80/80 — stronger bias toward current face
                            # EFFECTIVE Area score (higher is better)
-                           # Weight distance more heavily to keep consistency, but allow activity to swap focus if significant
-                           # normalized score?
-                           return dist - (f['effective_area'] * 0.0001)
+                           return dist + continuity - (f['effective_area'] * 0.0001)
 
                        faces_sorted = sorted(faces, key=sort_score)
                    else:
@@ -998,21 +1028,26 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
                    else:
                         faces_sorted = sorted(faces, key=lambda f: f.get('effective_area', 0), reverse=True)
                 
-                if target_faces == 2:
-                    # Convert [x1, y1, x2, y2] to (x, y, w, h) logic is later
-                    # Ensure we have 2 faces
-                    f1 = faces_sorted[0]['bbox']
-                    f2 = faces_sorted[1]['bbox']
-                    
-                    if last_detected_faces is not None and len(last_detected_faces) == 2:
-                        detections = sort_by_proximity([f1, f2], last_detected_faces, get_center_bbox)
+                if not detections:
+                    # detections not yet set by Re-ID lock — use sorted faces
+                    if target_faces == 2:
+                        # Convert [x1, y1, x2, y2] to (x, y, w, h) logic is later
+                        # Ensure we have 2 faces
+                        f1 = faces_sorted[0]['bbox']
+                        f2 = faces_sorted[1]['bbox']
+
+                        if last_detected_faces is not None and len(last_detected_faces) == 2:
+                            detections = sort_by_proximity([f1, f2], last_detected_faces, get_center_bbox)
+                        else:
+                            detections = [f1, f2]
+
+                        current_num_faces_state = 2
                     else:
-                        detections = [f1, f2]
-                        
-                    current_num_faces_state = 2
+                        # 1 face
+                        detections = [faces_sorted[0]['bbox']]
+                        current_num_faces_state = 1
                 else:
-                    # 1 face
-                    detections = [faces_sorted[0]['bbox']]
+                    # Re-ID already locked detections
                     current_num_faces_state = 1
             else:
                  # If we wanted 2 but found 1, or wanted 1 found 0
@@ -1091,9 +1126,13 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
                     # Legacy float support (should not happen with new main.py but good safety)
                     step = max(1, int(detection_period * fps))
             elif current_num_faces_state == 2:
-                step = int(1.0 * fps) # 1s for 2 faces
+                step = int(0.5 * fps)  # 0.5s for 2 faces (was 1.0s)
             else:
                 step = 5 # 5 frames for 1 face (~0.16s at 30fps)
+
+            # Minimum step when multiple faces detected to prevent oscillation
+            if len(faces) >= 2 and current_num_faces_state == 1:
+                step = max(step, int(0.5 * fps))  # was 0.4 — more stable transitions
 
             # FEAT: Adaptive detection interval — override step based on tracking stability
             if not detections:

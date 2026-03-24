@@ -15,6 +15,7 @@ class Segment:
     tiktok_caption: str = ""
     zoom_cues: list[dict] = field(default_factory=list)
     power_words: list[str] = field(default_factory=list)
+    caption_variants: list[str] = field(default_factory=list)
     score: float = 0.0
 
     @property
@@ -39,6 +40,7 @@ class Segment:
             tiktok_caption=d.get("tiktok_caption", ""),
             zoom_cues=d.get("zoom_cues", []),
             power_words=d.get("power_words", []),
+            caption_variants=d.get("caption_variants", []),
             score=float(d.get("score", 0)),
         )
 
@@ -53,6 +55,7 @@ class Segment:
             "tiktok_caption": self.tiktok_caption,
             "zoom_cues": list(self.zoom_cues),
             "power_words": list(self.power_words),
+            "caption_variants": list(self.caption_variants),
             "score": self.score,
         }
 

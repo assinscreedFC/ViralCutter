@@ -12,13 +12,29 @@ POWER_WORD_COLORS = {
     "danger": "&H4444FF&",       # Rouge (#FF4444 -> BGR)
 }
 
-# Animation templates — ASS override tags for highlighted word
-ANIMATION_TEMPLATES = {
-    "none": "",
-    "pop": "\\fscx115\\fscy115\\t(100,250,\\fscx100\\fscy100)",
-    "bounce": "\\fscx120\\fscy120\\t(0,100,\\fscx95\\fscy95)\\t(100,200,\\fscx100\\fscy100)",
-    "fade_pop": "\\alpha&HFF&\\fscx110\\fscy110\\t(0,100,\\alpha&H00&)\\t(100,200,\\fscx100\\fscy100)",
-}
+
+# Animation tags are generated dynamically by _get_animation_tags() to use
+# \fs (font size) instead of \fscx/\fscy (scale), avoiding full-line reflow.
+ANIMATION_TEMPLATES = {"none": ""}
+
+
+def _get_animation_tags(animation: str, hl_size: int) -> str:
+    """Generate ASS animation tags using \\fs instead of \\fscx/\\fscy.
+
+    Using \\fs avoids full-line reflow when a single word is animated,
+    so only the highlighted word visually changes size.
+    """
+    if animation == "pop":
+        bigger = hl_size + 3
+        return f"\\fs{bigger}\\t(100,250,\\fs{hl_size})"
+    elif animation == "bounce":
+        bigger = hl_size + 4
+        smaller = max(hl_size - 2, 1)
+        return f"\\fs{bigger}\\t(0,100,\\fs{smaller})\\t(100,200,\\fs{hl_size})"
+    elif animation == "fade_pop":
+        bigger = hl_size + 3
+        return f"\\alpha&HFF&\\fs{bigger}\\t(0,100,\\alpha&H00&)\\t(100,200,\\fs{hl_size})"
+    return ""
 
 def format_time_ass(time_seconds):
     hours = int(time_seconds // 3600)
@@ -160,7 +176,7 @@ def generate_ass_from_file(input_path, output_path, project_folder,
 
                 start_times = [word.get('start', 0) for word in block]
                 end_times = [word.get('end', 0) for word in block]
-                
+
                 if not start_times: continue
 
                 for j in range(len(block)):
@@ -192,7 +208,7 @@ def generate_ass_from_file(input_path, output_path, project_folder,
                                     pw_color = POWER_WORD_COLORS.get(category)
                             if k == j:
                                 color = pw_color or highlight_color
-                                anim_tags = ANIMATION_TEMPLATES.get(animation, "")
+                                anim_tags = _get_animation_tags(animation, highlight_size)
                                 line += f"{{{anim_tags}\\fs{highlight_size}\\c{color}}}{word} "
                             else:
                                 color = pw_color or base_color
@@ -203,7 +219,7 @@ def generate_ass_from_file(input_path, output_path, project_folder,
                         line = " ".join(word_data['word'] for word_data in block).strip()
 
                     elif mode == "palavra_por_palavra":
-                        anim_tags = ANIMATION_TEMPLATES.get(animation, "")
+                        anim_tags = _get_animation_tags(animation, highlight_size)
                         word_text = block[j]['word'].strip()
                         line = f"{{{anim_tags}\\fs{highlight_size}\\c{highlight_color}}}{word_text}"
                     

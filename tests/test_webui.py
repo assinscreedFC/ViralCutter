@@ -37,6 +37,7 @@ if str(PROJECT_ROOT) not in sys.path:
 # ---------------------------------------------------------------------------
 _mock_gr = types.ModuleType("gradio")
 _mock_gr.update = lambda **kw: kw  # type: ignore[attr-defined]
+_mock_gr.skip = lambda: {"__type__": "update"}  # type: ignore[attr-defined]
 _mock_gr.Info = lambda msg: None  # type: ignore[attr-defined]
 # Add common gr attributes that may be accessed at import time
 for _attr in ("Blocks", "Row", "Column", "Tab", "Tabs", "Markdown", "HTML",
