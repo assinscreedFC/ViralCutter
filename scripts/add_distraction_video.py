@@ -26,11 +26,10 @@ import logging
 import os
 import subprocess
 import random
-import json
 import argparse
 
 from scripts.run_cmd import run as run_cmd
-from scripts.ffmpeg_utils import get_best_encoder, build_quality_params, _build_preset_flags
+from scripts.ffmpeg_utils import get_best_encoder, build_quality_params, _build_preset_flags, get_video_duration
 
 logger = logging.getLogger(__name__)
 
@@ -71,21 +70,6 @@ def _video_files_in(directory: str) -> list[str]:
         if f.lower().endswith(exts)
     ]
 
-
-def _get_video_duration(video_path: str) -> float:
-    """Retourne la durée en secondes via ffprobe."""
-    cmd = [
-        "ffprobe", "-v", "quiet",
-        "-print_format", "json",
-        "-show_format",
-        video_path,
-    ]
-    try:
-        result = run_cmd(cmd, text=True, check=False, timeout=30)
-        data = json.loads(result.stdout)
-        return float(data["format"]["duration"])
-    except Exception:
-        return 0.0
 
 
 def _pick_distraction_video(distraction_dir: str, distraction_file: str | None) -> str | None:
@@ -164,8 +148,8 @@ def stack_videos(
     Audio : uniquement celui de main_video.
     Retourne True si succès.
     """
-    main_duration = _get_video_duration(main_video)
-    distraction_duration = _get_video_duration(distraction_video)
+    main_duration = get_video_duration(main_video)
+    distraction_duration = get_video_duration(distraction_video)
 
     if main_duration <= 0:
         logger.info(f"[SPLIT] Durée invalide pour {os.path.basename(main_video)}, ignoré")

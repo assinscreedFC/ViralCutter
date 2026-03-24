@@ -879,3 +879,322 @@ class TestValidateUrl:
     def test_ipv6_loopback_rejected(self):
         with pytest.raises(ValueError, match="private"):
             validate_url("http://[::1]/admin")
+
+
+# ===========================================================================
+# 9. build_lut_filter — LUT filter string builder
+# ===========================================================================
+class TestBuildLutFilter:
+    """Tests pour build_lut_filter() — genere un filtre LUT sans executer FFmpeg."""
+
+    def test_returns_none_when_lut_file_missing(self):
+        from scripts.color_grading import build_lut_filter
+        result = build_lut_filter(lut_name="nonexistent.cube", lut_dir=tempfile.mkdtemp())
+        assert result is None
+
+    def test_returns_filter_string_with_valid_lut(self):
+        from scripts.color_grading import build_lut_filter
+        tmp_dir = tempfile.mkdtemp()
+        lut_file = os.path.join(tmp_dir, "test.cube")
+        with open(lut_file, "w") as f:
+            f.write("# dummy lut\n")
+        try:
+            result = build_lut_filter(lut_name="test.cube", intensity=0.5, lut_dir=tmp_dir)
+            assert result is not None
+            assert "lut3d=" in result
+            assert "blend=all_mode=normal:all_opacity=0.5" in result
+            assert "split[__lut_a][__lut_b]" in result
+        finally:
+            os.unlink(lut_file)
+            os.rmdir(tmp_dir)
+
+    def test_intensity_clamped(self):
+        from scripts.color_grading import build_lut_filter
+        tmp_dir = tempfile.mkdtemp()
+        lut_file = os.path.join(tmp_dir, "test.cube")
+        with open(lut_file, "w") as f:
+            f.write("# dummy\n")
+        try:
+            result = build_lut_filter(lut_name="test.cube", intensity=5.0, lut_dir=tmp_dir)
+            assert result is not None
+            assert "all_opacity=1.0" in result
+        finally:
+            os.unlink(lut_file)
+            os.rmdir(tmp_dir)
+
+    def test_path_traversal_blocked(self):
+        from scripts.color_grading import build_lut_filter
+        result = build_lut_filter(lut_name="../../etc/passwd", lut_dir=tempfile.mkdtemp())
+        assert result is None
+
+    def test_backslash_escaping(self):
+        """LUT path with backslashes should be converted to forward slashes."""
+        from scripts.color_grading import build_lut_filter
+        tmp_dir = tempfile.mkdtemp()
+        lut_file = os.path.join(tmp_dir, "my_lut.cube")
+        with open(lut_file, "w") as f:
+            f.write("# dummy\n")
+        try:
+            result = build_lut_filter(lut_name="my_lut.cube", lut_dir=tmp_dir)
+            assert result is not None
+            # No backslashes in the filter string
+            assert "\\" not in result
+        finally:
+            os.unlink(lut_file)
+            os.rmdir(tmp_dir)
+
+
+# ===========================================================================
+# 9b. apply_lut — path traversal validation
+# ===========================================================================
+class TestApplyLutPathTraversal:
+    """Tests pour apply_lut() — validation anti-path-traversal."""
+
+    def test_apply_lut_traversal_blocked(self):
+        """apply_lut() doit bloquer les noms LUT avec ../."""
+        from scripts.color_grading import apply_lut
+        tmp_dir = tempfile.mkdtemp()
+        try:
+            result = apply_lut(
+                "/fake/input.mp4", "/fake/output.mp4",
+                lut_name="../../etc/passwd", lut_dir=tmp_dir,
+            )
+            assert result is False
+        finally:
+            os.rmdir(tmp_dir)
+
+    def test_apply_lut_absolute_path_blocked(self):
+        """apply_lut() doit bloquer un chemin absolu comme nom LUT."""
+        from scripts.color_grading import apply_lut
+        tmp_dir = tempfile.mkdtemp()
+        if sys.platform == "win32":
+            malicious = "C:\\Windows\\System32\\evil.cube"
+        else:
+            malicious = "/etc/evil.cube"
+        try:
+            result = apply_lut(
+                "/fake/input.mp4", "/fake/output.mp4",
+                lut_name=malicious, lut_dir=tmp_dir,
+            )
+            # Either blocked by traversal check or file not found -> False
+            assert result is False
+        finally:
+            os.rmdir(tmp_dir)
+
+    def test_build_lut_filter_absolute_path_blocked(self):
+        """build_lut_filter() doit bloquer un chemin absolu comme nom LUT."""
+        from scripts.color_grading import build_lut_filter
+        tmp_dir = tempfile.mkdtemp()
+        if sys.platform == "win32":
+            malicious = "C:\\Windows\\System32\\evil.cube"
+        else:
+            malicious = "/etc/evil.cube"
+        try:
+            result = build_lut_filter(lut_name=malicious, lut_dir=tmp_dir)
+            assert result is None
+        finally:
+            os.rmdir(tmp_dir)
+
+
+# ===========================================================================
+# 10. apply_post_production — combined single-pass post-production
+# ===========================================================================
+class TestApplyPostProduction:
+    """Tests pour apply_post_production() — filtre combine en un seul pass FFmpeg."""
+
+    def test_no_effects_returns_true_no_encode(self):
+        """Aucun effet active -> True sans appel FFmpeg."""
+        from scripts.overlay_effects import apply_post_production
+        result = apply_post_production("/fake/input.mp4", "/fake/output.mp4")
+        assert result is True
+
+    def test_progress_bar_invalid_color_returns_false(self):
+        from scripts.overlay_effects import apply_post_production
+        result = apply_post_production(
+            "/fake/input.mp4", "/fake/output.mp4",
+            progress_bar=True, bar_color="invalid;color",
+        )
+        assert result is False
+
+    def test_progress_bar_invalid_position_returns_false(self):
+        from scripts.overlay_effects import apply_post_production
+        result = apply_post_production(
+            "/fake/input.mp4", "/fake/output.mp4",
+            progress_bar=True, bar_position="middle",
+        )
+        assert result is False
+
+    def test_single_effect_bar_only(self):
+        """Progress bar seul: verifie la commande FFmpeg generee."""
+        from scripts.overlay_effects import apply_post_production
+        import scripts.ffmpeg_utils as ffu
+        old_cache = ffu.CACHED_ENCODER
+        ffu.CACHED_ENCODER = ("libx264", "fast")
+        try:
+            with patch("scripts.overlay_effects.get_video_duration", return_value=10.0), \
+                 patch("scripts.overlay_effects.run_cmd") as mock_run:
+                result = apply_post_production(
+                    "/fake/input.mp4", "/fake/output.mp4",
+                    progress_bar=True, bar_color="white", bar_position="bottom",
+                )
+                assert result is True
+                mock_run.assert_called_once()
+                cmd = mock_run.call_args[0][0]
+                assert "-filter_complex" in cmd
+                fc_idx = cmd.index("-filter_complex")
+                fc = cmd[fc_idx + 1]
+                assert "drawbox" in fc
+                assert "iw*t/10.0" in fc
+                assert "-c:a" in cmd
+                assert "copy" in cmd[cmd.index("-c:a") + 1]
+        finally:
+            ffu.CACHED_ENCODER = old_cache
+
+    def test_lut_only_with_missing_file(self):
+        """LUT active mais fichier absent -> LUT saute, pas de filtre, False."""
+        from scripts.overlay_effects import apply_post_production
+        with patch("scripts.overlay_effects.get_video_duration", return_value=10.0):
+            result = apply_post_production(
+                "/fake/input.mp4", "/fake/output.mp4",
+                lut_name="nonexistent_lut.cube", lut_dir=tempfile.mkdtemp(),
+            )
+            # LUT skipped -> no filters -> returns False (requested effect failed)
+            assert result is False
+
+    def test_combined_bar_and_emoji(self):
+        """Progress bar + emoji: verifie que filter_complex contient les deux."""
+        from scripts.overlay_effects import apply_post_production
+        import scripts.ffmpeg_utils as ffu
+        old_cache = ffu.CACHED_ENCODER
+        ffu.CACHED_ENCODER = ("libx264", "fast")
+        try:
+            fake_png = tempfile.NamedTemporaryFile(suffix=".png", delete=False).name
+            emojis = [{"emoji": "fire", "timestamp": 1.0, "duration": 2.0, "position": "center"}]
+            with patch("scripts.overlay_effects.get_video_duration", return_value=10.0), \
+                 patch("scripts.overlay_effects._render_emoji_png", return_value=fake_png), \
+                 patch("scripts.overlay_effects.run_cmd") as mock_run:
+                result = apply_post_production(
+                    "/fake/input.mp4", "/fake/output.mp4",
+                    progress_bar=True, bar_color="white", bar_position="top",
+                    emojis=emojis,
+                )
+                assert result is True
+                cmd = mock_run.call_args[0][0]
+                fc = cmd[cmd.index("-filter_complex") + 1]
+                # Both drawbox and overlay should be present
+                assert "drawbox" in fc
+                assert "overlay=" in fc
+                assert "between(t,1.0,3.0)" in fc
+        finally:
+            ffu.CACHED_ENCODER = old_cache
+            if os.path.exists(fake_png):
+                os.unlink(fake_png)
+
+    def test_all_three_effects(self):
+        """LUT + progress bar + emoji: 3 effets dans un seul filter_complex."""
+        from scripts.overlay_effects import apply_post_production
+        import scripts.ffmpeg_utils as ffu
+        old_cache = ffu.CACHED_ENCODER
+        ffu.CACHED_ENCODER = ("libx264", "fast")
+        tmp_dir = tempfile.mkdtemp()
+        lut_file = os.path.join(tmp_dir, "test.cube")
+        with open(lut_file, "w") as f:
+            f.write("# dummy\n")
+        try:
+            fake_png = tempfile.NamedTemporaryFile(suffix=".png", delete=False).name
+            emojis = [{"emoji": "star", "timestamp": 0.5, "duration": 1.0, "position": "top-right"}]
+            with patch("scripts.overlay_effects.get_video_duration", return_value=15.0), \
+                 patch("scripts.overlay_effects._render_emoji_png", return_value=fake_png), \
+                 patch("scripts.overlay_effects.run_cmd") as mock_run:
+                result = apply_post_production(
+                    "/fake/input.mp4", "/fake/output.mp4",
+                    lut_name="test.cube", lut_intensity=0.7, lut_dir=tmp_dir,
+                    progress_bar=True, bar_color="red", bar_position="bottom",
+                    emojis=emojis,
+                )
+                assert result is True
+                cmd = mock_run.call_args[0][0]
+                fc = cmd[cmd.index("-filter_complex") + 1]
+                # All three effects present
+                assert "lut3d=" in fc
+                assert "blend=" in fc
+                assert "drawbox" in fc
+                assert "overlay=" in fc
+                # Verify chain: LUT tags -> bar tag -> emoji tag (without final tag)
+                assert "[__pp_lut]" in fc
+                assert "[__pp_bar]" in fc
+        finally:
+            ffu.CACHED_ENCODER = old_cache
+            os.unlink(lut_file)
+            os.rmdir(tmp_dir)
+            if os.path.exists(fake_png):
+                os.unlink(fake_png)
+
+    def test_invalid_duration_returns_false(self):
+        """Duree video invalide -> False."""
+        from scripts.overlay_effects import apply_post_production
+        with patch("scripts.overlay_effects.get_video_duration", return_value=0.0):
+            result = apply_post_production(
+                "/fake/input.mp4", "/fake/output.mp4",
+                progress_bar=True,
+            )
+            assert result is False
+
+    def test_ffmpeg_failure_returns_false(self):
+        """Erreur FFmpeg -> False."""
+        from scripts.overlay_effects import apply_post_production
+        import scripts.ffmpeg_utils as ffu
+        old_cache = ffu.CACHED_ENCODER
+        ffu.CACHED_ENCODER = ("libx264", "fast")
+        try:
+            with patch("scripts.overlay_effects.get_video_duration", return_value=10.0), \
+                 patch("scripts.overlay_effects.run_cmd", side_effect=RuntimeError("ffmpeg crash")):
+                result = apply_post_production(
+                    "/fake/input.mp4", "/fake/output.mp4",
+                    progress_bar=True,
+                )
+                assert result is False
+        finally:
+            ffu.CACHED_ENCODER = old_cache
+
+    def test_emoji_png_cleanup_on_success(self):
+        """Les PNG emoji temporaires sont supprimes meme en cas de succes."""
+        from scripts.overlay_effects import apply_post_production
+        import scripts.ffmpeg_utils as ffu
+        old_cache = ffu.CACHED_ENCODER
+        ffu.CACHED_ENCODER = ("libx264", "fast")
+        try:
+            fake_png = tempfile.NamedTemporaryFile(suffix=".png", delete=False).name
+            assert os.path.exists(fake_png)
+            emojis = [{"emoji": "fire", "timestamp": 0, "duration": 1}]
+            with patch("scripts.overlay_effects.get_video_duration", return_value=5.0), \
+                 patch("scripts.overlay_effects._render_emoji_png", return_value=fake_png), \
+                 patch("scripts.overlay_effects.run_cmd"):
+                apply_post_production(
+                    "/fake/input.mp4", "/fake/output.mp4",
+                    emojis=emojis,
+                )
+            # PNG should be cleaned up
+            assert not os.path.exists(fake_png)
+        finally:
+            ffu.CACHED_ENCODER = old_cache
+
+    def test_emoji_png_cleanup_on_failure(self):
+        """Les PNG emoji temporaires sont supprimes meme en cas d'erreur."""
+        from scripts.overlay_effects import apply_post_production
+        import scripts.ffmpeg_utils as ffu
+        old_cache = ffu.CACHED_ENCODER
+        ffu.CACHED_ENCODER = ("libx264", "fast")
+        try:
+            fake_png = tempfile.NamedTemporaryFile(suffix=".png", delete=False).name
+            emojis = [{"emoji": "fire", "timestamp": 0, "duration": 1}]
+            with patch("scripts.overlay_effects.get_video_duration", return_value=5.0), \
+                 patch("scripts.overlay_effects._render_emoji_png", return_value=fake_png), \
+                 patch("scripts.overlay_effects.run_cmd", side_effect=RuntimeError("boom")):
+                apply_post_production(
+                    "/fake/input.mp4", "/fake/output.mp4",
+                    emojis=emojis,
+                )
+            assert not os.path.exists(fake_png)
+        finally:
+            ffu.CACHED_ENCODER = old_cache

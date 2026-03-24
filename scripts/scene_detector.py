@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 
+from scripts.ffmpeg_utils import get_video_duration
 from scripts.frame_utils import downscale_for_analysis
 
 logger = logging.getLogger(__name__)
@@ -190,19 +191,10 @@ def detect_scenes_for_segments(
     Returns:
         List of {"start": float, "end": float, "scene_idx": int} dicts.
     """
-    import subprocess
-    import json as json_mod
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    # Get video duration via ffprobe
-    try:
-        probe = subprocess.run(
-            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration", "-of", "json", video_path],
-            capture_output=True, text=True, timeout=10,
-        )
-        video_duration = float(json_mod.loads(probe.stdout)["format"]["duration"])
-    except Exception:
-        video_duration = 0.0
+    # Get video duration via cached ffprobe
+    video_duration = get_video_duration(video_path)
 
     # Collect time ranges to scan (±margin around each segment boundary)
     ranges: list[tuple[float, float]] = []

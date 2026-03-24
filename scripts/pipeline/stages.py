@@ -739,33 +739,37 @@ def stage_post_production(ctx: PipelineContext) -> None:
         final_folder = os.path.join(ctx.project_folder, "cuts")
     video_files = sorted(glob_mod.glob(os.path.join(final_folder, "*.mp4")))
 
-    for video_path in video_files:
-        temp_out = video_path + ".tmp.mp4"
+    has_any_effect = args.color_grade or args.progress_bar or args.emoji_overlay
 
-        if args.color_grade:
-            from scripts.color_grading import apply_lut
-            if apply_lut(video_path, temp_out, lut_name=args.color_grade, intensity=args.grade_intensity):
-                os.replace(temp_out, video_path)
-                logger.info(f"Color grading applied: {os.path.basename(video_path)}")
-
-        if args.progress_bar:
-            from scripts.overlay_effects import add_progress_bar
-            if add_progress_bar(video_path, temp_out, bar_color=args.bar_color, bar_position=args.bar_position):
-                os.replace(temp_out, video_path)
-                logger.info(f"Progress bar added: {os.path.basename(video_path)}")
-
+    for idx, video_path in enumerate(video_files):
+        # Resolve emoji cues for this segment
+        emoji_cues: list[dict] = []
         if args.emoji_overlay and ctx.viral_segments and "segments" in ctx.viral_segments:
-            from scripts.overlay_effects import add_emoji_overlay
-            idx = video_files.index(video_path)
             if idx < len(ctx.viral_segments["segments"]):
                 emoji_cues = ctx.viral_segments["segments"][idx].get("emoji_cues", [])
-                if emoji_cues:
-                    if add_emoji_overlay(video_path, temp_out, emoji_cues):
-                        os.replace(temp_out, video_path)
-                        logger.info(f"Emoji overlay added: {os.path.basename(video_path)}")
 
-        if os.path.exists(temp_out):
-            os.remove(temp_out)
+        if not has_any_effect:
+            continue
+
+        temp_out = video_path + ".tmp.mp4"
+        try:
+            from scripts.overlay_effects import apply_post_production
+            ok = apply_post_production(
+                video_path,
+                temp_out,
+                lut_name=args.color_grade if args.color_grade else None,
+                lut_intensity=args.grade_intensity,
+                progress_bar=bool(args.progress_bar),
+                bar_color=args.bar_color,
+                bar_position=args.bar_position,
+                emojis=emoji_cues or None,
+            )
+            if ok and os.path.isfile(temp_out):
+                os.replace(temp_out, video_path)
+                logger.info(f"Post-production applied (single pass): {os.path.basename(video_path)}")
+        finally:
+            if os.path.exists(temp_out):
+                os.remove(temp_out)
 
     # AI Dubbing
     if args.dubbing:

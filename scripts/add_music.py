@@ -16,6 +16,7 @@ Moods reconnus (générés par le LLM via MUSIC_RULES_TEMPLATE) :
 import logging
 import os
 from scripts.run_cmd import run as run_cmd
+from scripts.ffmpeg_utils import get_video_duration
 import json
 import random
 import time
@@ -284,12 +285,10 @@ def mix_music_to_clip(
 ) -> bool:
     """Mixe la musique de fond avec le clip vidéo via ffmpeg."""
     try:
-        probe = run_cmd(
-            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
-             "-of", "csv=p=0", clip_path],
-            check=False, text=True
-        )
-        clip_duration = float(probe.stdout.strip())
+        clip_duration = get_video_duration(clip_path)
+        if clip_duration <= 0:
+            logger.warning(f"[MUSIC] Durée invalide pour {os.path.basename(clip_path)}")
+            return False
         fade_start = max(0, clip_duration - FADE_OUT_DURATION)
 
         cmd = [

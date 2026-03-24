@@ -76,7 +76,7 @@ footer {visibility: hidden}
 
 import header
 
-with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_hue="orange", neutral_hue="slate"), css=css) as demo:
+with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_hue="orange", neutral_hue="slate"), css=css, maximum_file_size="2gb") as demo:
     gr.Markdown(header.badges)
     gr.Markdown(header.description)
     with gr.Tabs():
@@ -1009,9 +1009,22 @@ if __name__ == "__main__":
 
         logger.debug(f"Allowed paths for Gradio: {allowed_dirs}")
 
+        # Auth for shared tunnels — set WEBUI_USERNAME + WEBUI_PASSWORD env vars
+        _share_auth = None
+        _wu = os.environ.get("WEBUI_USERNAME")
+        _wp = os.environ.get("WEBUI_PASSWORD")
+        if _wu and _wp:
+            _share_auth = (_wu, _wp)
+        else:
+            logger.warning(
+                "share=True without authentication. Set WEBUI_USERNAME and "
+                "WEBUI_PASSWORD environment variables to restrict access."
+            )
+
         # Launch with prevent_thread_lock to allow mounting
         app, local_url, share_url = demo.queue().launch(
             share=True,
+            auth=_share_auth,
             allowed_paths=allowed_dirs,
             prevent_thread_lock=True
         )

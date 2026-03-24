@@ -19,6 +19,41 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_LUT_DIR = os.path.join(PROJECT_ROOT, "luts")
 
 
+def build_lut_filter(
+    lut_name: str = "cinematic",
+    intensity: float = 0.7,
+    lut_dir: str | None = None,
+) -> str | None:
+    """Build the LUT filter string for use in a combined filter_complex.
+
+    Returns the filter string (e.g. ``split[a][b];[b]lut3d=...``) or None
+    if the LUT file cannot be resolved.  Does NOT run FFmpeg.
+    """
+    if lut_dir is None:
+        lut_dir = DEFAULT_LUT_DIR
+
+    lut_filename = LUT_PRESETS.get(lut_name, lut_name)
+    lut_path = os.path.realpath(os.path.join(lut_dir, lut_filename))
+    if not lut_path.startswith(os.path.realpath(lut_dir)):
+        logger.error("LUT path traversal attempt: %s", lut_name)
+        return None
+
+    if not os.path.isfile(lut_path):
+        logger.warning("LUT file not found: %s", lut_path)
+        return None
+
+    intensity = max(0.0, min(1.0, intensity))
+
+    # Escape backslashes and single quotes for ffmpeg filter string
+    safe_lut = lut_path.replace("\\", "/").replace("'", "'\\''")
+
+    return (
+        f"split[__lut_a][__lut_b];"
+        f"[__lut_b]lut3d='{safe_lut}'[__lut_g];"
+        f"[__lut_a][__lut_g]blend=all_mode=normal:all_opacity={intensity}"
+    )
+
+
 def apply_lut(
     input_path: str,
     output_path: str,

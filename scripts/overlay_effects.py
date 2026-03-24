@@ -276,3 +276,181 @@ def add_emoji_overlay(
                 os.unlink(p)
             except OSError:
                 pass
+
+
+# ---------------------------------------------------------------------------
+# Combined single-pass post-production
+# ---------------------------------------------------------------------------
+
+_VALID_COLOR = re.compile(r'^[a-zA-Z0-9#@.]+$')
+
+
+def apply_post_production(
+    input_path: str,
+    output_path: str,
+    *,
+    # Color grading params
+    lut_name: str | None = None,
+    lut_intensity: float = 0.5,
+    lut_dir: str | None = None,
+    # Progress bar params
+    progress_bar: bool = False,
+    bar_color: str = "white",
+    bar_height: int = 6,
+    bar_position: str = "bottom",
+    # Emoji params
+    emojis: list[dict] | None = None,
+) -> bool:
+    """Apply color grading + progress bar + emoji overlay in ONE FFmpeg pass.
+
+    Only enabled effects are included in the filter chain.  If no effects
+    are enabled the function returns True immediately (no re-encode).
+
+    Returns True on success, False on failure.
+    """
+    from scripts.color_grading import build_lut_filter
+
+    # ---- Determine which effects are active --------------------------------
+    has_lut = lut_name is not None
+    has_bar = progress_bar
+    has_emoji = bool(emojis)
+
+    if not (has_lut or has_bar or has_emoji):
+        logger.debug("apply_post_production: no effects enabled, skipping")
+        return True
+
+    # ---- Validate inputs early ---------------------------------------------
+    if has_bar:
+        if not _VALID_COLOR.match(bar_color):
+            logger.error("Invalid bar_color: %s", bar_color)
+            return False
+        if bar_position not in ("top", "bottom"):
+            logger.error("Invalid bar_position: %s", bar_position)
+            return False
+
+    duration = get_video_duration(input_path)
+    if duration <= 0:
+        logger.error("apply_post_production: invalid duration (%.2f) for %s", duration, input_path)
+        return False
+
+    # ---- Build filter chain ------------------------------------------------
+    # We use filter_complex (not -vf) because emoji overlays need multiple
+    # inputs.  Each stage consumes the previous tag and produces the next.
+    #
+    # Convention: current_tag tracks the *output* of the last filter.
+    # When a stage is the very last one it must NOT emit a tag (FFmpeg
+    # requirement: the final output is untagged).
+
+    filters: list[str] = []
+    current_tag = "[0:v]"
+    extra_inputs: list[str] = []   # -i flags for emoji PNGs
+    png_paths: list[str] = []      # for cleanup
+    # emoji input index offset: 0 is the video, emoji PNGs start at 1
+    emoji_input_offset = 1
+
+    try:
+        # -- LUT color grading -----------------------------------------------
+        if has_lut:
+            lut_filter = build_lut_filter(
+                lut_name=lut_name,
+                intensity=lut_intensity,
+                lut_dir=lut_dir,
+            )
+            if lut_filter is None:
+                logger.warning("LUT filter could not be built, skipping color grading")
+                has_lut = False
+            else:
+                # The build_lut_filter uses internal tags __lut_a/__lut_b/__lut_g.
+                # We need to feed current_tag into split and capture output.
+                out_tag = "[__pp_lut]"
+                # Replace the bare "split" with "{current_tag}split" and append output tag
+                lut_adapted = lut_filter.replace(
+                    "split[__lut_a][__lut_b]",
+                    f"{current_tag}split[__lut_a][__lut_b]",
+                )
+                # The blend output needs a tag for the next stage
+                lut_adapted += out_tag
+                filters.append(lut_adapted)
+                current_tag = out_tag
+
+        # -- Progress bar (drawbox) ------------------------------------------
+        if has_bar:
+            y_expr = "0" if bar_position == "top" else f"ih-{bar_height}"
+            out_tag = "[__pp_bar]"
+            drawbox = (
+                f"{current_tag}drawbox=x=0:y={y_expr}:"
+                f"w=iw*t/{duration}:h={bar_height}:"
+                f"color={bar_color}@0.8:thickness=fill"
+                f"{out_tag}"
+            )
+            filters.append(drawbox)
+            current_tag = out_tag
+
+        # -- Emoji overlays --------------------------------------------------
+        if has_emoji:
+            for idx, entry in enumerate(emojis):
+                emoji_name = entry.get("emoji", "fire")
+                timestamp = float(entry.get("timestamp", 0))
+                dur = float(entry.get("duration", 1.5))
+                pos_key = entry.get("position", "center")
+
+                png_path = _render_emoji_png(emoji_name)
+                if png_path is None:
+                    logger.warning("Could not render emoji '%s', skipping it", emoji_name)
+                    continue
+                png_paths.append(png_path)
+                extra_inputs.extend(["-i", png_path])
+
+                x_expr, y_expr_e = _POSITION_MAP.get(pos_key, _POSITION_MAP["center"])
+                end_t = timestamp + dur
+                input_idx = emoji_input_offset + len(png_paths) - 1
+                out_tag = f"[__pp_emo{idx}]"
+
+                filters.append(
+                    f"{current_tag}[{input_idx}:v]overlay={x_expr}:{y_expr_e}"
+                    f":enable='between(t,{timestamp},{end_t})'{out_tag}"
+                )
+                current_tag = out_tag
+
+        # If after skipping we have no filters at all, bail out
+        if not filters:
+            logger.debug("apply_post_production: all requested effects were skipped")
+            return False
+
+        filter_complex = ";".join(filters)
+        logger.debug("apply_post_production filter_complex: %s", filter_complex)
+
+        # ---- Build and run FFmpeg command -----------------------------------
+        # Use -map to select the last named output pad (more robust than
+        # stripping the output tag via string manipulation).
+        encoder_name, encoder_preset = get_best_encoder()
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", input_path,
+            *extra_inputs,
+            "-filter_complex", filter_complex,
+            "-map", current_tag,
+            "-map", "0:a?",
+            "-c:v", encoder_name, *_build_preset_flags(encoder_name, encoder_preset),
+            *build_quality_params(encoder_name),
+            "-pix_fmt", "yuv420p",
+            "-c:a", "copy",
+            output_path,
+        ]
+        logger.debug("apply_post_production cmd: %s", " ".join(cmd))
+        run_cmd(cmd, text=True)
+        logger.info(
+            "Post-production applied (lut=%s, bar=%s, emoji=%d) -> %s",
+            bool(has_lut), has_bar, len(png_paths), output_path,
+        )
+        return True
+
+    except Exception as e:
+        logger.error("apply_post_production failed: %s", e)
+        return False
+    finally:
+        for p in png_paths:
+            try:
+                os.unlink(p)
+            except OSError:
+                pass

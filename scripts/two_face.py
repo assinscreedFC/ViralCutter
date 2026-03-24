@@ -119,10 +119,8 @@ def detect_face_or_body_two_faces(frame, face_detection, face_mesh, pose):
     # Converter a imagem para RGB
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-    # Processar a detecção de rosto
+    # 1) Face detection (fastest) — early return if 2 faces found
     results_face_detection = face_detection.process(frame_rgb)
-    results_face_mesh = face_mesh.process(frame_rgb)
-    results_pose = pose.process(frame_rgb)
 
     face_positions_detection = []
     if results_face_detection.detections:
@@ -137,6 +135,9 @@ def detect_face_or_body_two_faces(frame, face_detection, face_mesh, pose):
     if len(face_positions_detection) == 2:
         return face_positions_detection
 
+    # 2) Face mesh (more expensive) — only if detection didn't find 2 faces
+    results_face_mesh = face_mesh.process(frame_rgb)
+
     face_positions_mesh = []
     if results_face_mesh.multi_face_landmarks:
         for landmarks in results_face_mesh.multi_face_landmarks[:2]:
@@ -150,14 +151,16 @@ def detect_face_or_body_two_faces(frame, face_detection, face_mesh, pose):
 
     if len(face_positions_mesh) == 2:
         return face_positions_mesh
-        
+
     # If neither found 2, return what we found (prefer detection as it is bounding box optimized)
     if face_positions_detection:
         return face_positions_detection
     if face_positions_mesh:
         return face_positions_mesh
 
-    # Se nenhum rosto for detectado, usar a pose para estimar o corpo
+    # 3) Pose estimation (most expensive) — only as last resort when no faces found
+    results_pose = pose.process(frame_rgb)
+
     if results_pose.pose_landmarks:
         x_coords = [lmk.x for lmk in results_pose.pose_landmarks.landmark]
         y_coords = [lmk.y for lmk in results_pose.pose_landmarks.landmark]
