@@ -5,6 +5,7 @@ import logging
 
 from scripts.pipeline.context import PipelineContext
 from scripts.pipeline.stages import (
+    stage_ab_variants,
     stage_cut,
     stage_download,
     stage_face_edit,
@@ -39,5 +40,6 @@ def run_pipeline(ctx: PipelineContext) -> None:
     stage_quality(ctx)
     stage_face_edit(ctx)
     stage_subtitles(ctx)
+    stage_ab_variants(ctx)
     stage_post_production(ctx)
     stage_save_config(ctx)

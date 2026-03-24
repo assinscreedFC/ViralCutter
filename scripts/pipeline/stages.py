@@ -173,7 +173,9 @@ def stage_viral_segments(ctx: PipelineContext) -> None:
                 enable_scoring=cfg.ai.enable_scoring,
                 min_score=cfg.ai.min_score,
                 enable_validation=cfg.ai.enable_validation,
-                enable_parts=cfg.segment.enable_parts
+                enable_parts=cfg.segment.enable_parts,
+                ab_variants=cfg.post_production.ab_variants,
+                num_variants=cfg.post_production.num_variants,
             )
 
         if not ctx.viral_segments or not ctx.viral_segments.get("segments"):
@@ -705,6 +707,27 @@ def stage_subtitles(ctx: PipelineContext) -> None:
     except Exception as e:
         logger.error(i18n("[ERROR] Unexpected error during subtitle burning: {}").format(str(e)))
         raise e
+
+
+# ---------------------------------------------------------------------------
+# Stage 8b: A/B Caption Variants
+# ---------------------------------------------------------------------------
+
+def stage_ab_variants(ctx: PipelineContext) -> None:
+    """Generate A/B caption variants if enabled."""
+    cfg = ctx.cfg
+    if not cfg.post_production.ab_variants:
+        return
+
+    from scripts.ab_variants import generate_variants
+    sub_config = ctx.sub_config if hasattr(ctx, "sub_config") else None
+    variants = generate_variants(
+        project_folder=ctx.project_folder,
+        num_variants=cfg.post_production.num_variants,
+        sub_config=sub_config,
+    )
+    if variants:
+        logger.info(f"Generated {len(variants)} A/B variant videos in burned_sub/")
 
 
 # ---------------------------------------------------------------------------

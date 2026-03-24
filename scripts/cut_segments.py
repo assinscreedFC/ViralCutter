@@ -141,6 +141,20 @@ def cut(
                     except Exception as e:
                         logger.warning(f"[Seg {i}] Scene detection failed, using original timestamps: {e}")
 
+                # --- Face Start Snap: ensure first frame shows a face ---
+                try:
+                    from scripts.face_start_snap import snap_to_first_face
+                    new_start = snap_to_first_face(input_file, start_time_seconds)
+                    if new_start != start_time_seconds:
+                        shift = new_start - start_time_seconds
+                        logger.info(f"  [Seg {i}] Face snap: {start_time_seconds:.2f} -> {new_start:.2f}")
+                        start_time_seconds = new_start
+                        start_time_str = f"{new_start:.3f}"
+                        duration_seconds = max(10.0, duration_seconds - shift)  # floor 10s to avoid micro-clips
+                        duration_str = f"{duration_seconds:.3f}"
+                except Exception as e:
+                    logger.warning(f"[Seg {i}] Face snap failed: {e}")
+
                 # Título para nome de arquivo
                 title = segment.get("title", f"Segment_{i}")
                 safe_title = "".join([c for c in title if c.isalnum() or c in " _-"]).strip()

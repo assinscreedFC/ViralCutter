@@ -59,17 +59,18 @@ def add_progress_bar(
         logger.error("Cannot add progress bar: invalid duration (%.2f)", duration)
         return False
 
-    y_expr = "0" if bar_position == "top" else f"ih-{bar_height}"
-    drawbox = (
-        f"drawbox=x=0:y={y_expr}:"
-        f"w=iw*t/{duration}:h={bar_height}:"
-        f"color={bar_color}@0.8:thickness=fill"  # FIX: 'thickness' au lieu de 't' pour eviter ambiguite avec variable temps
+    # Use color+overlay approach for broad FFmpeg compatibility
+    # (drawbox eval=frame is not supported in all builds)
+    y_overlay = "0" if bar_position == "top" else f"H-{bar_height}"
+    filter_complex = (
+        f"color=c={bar_color}@0.8:s=1080x{bar_height}:d={duration},format=rgba[__bar];"
+        f"[0:v][__bar]overlay=x='(W)*t/{duration}-W':y={y_overlay}:shortest=1:format=auto"
     )
 
     encoder_name, encoder_preset = get_best_encoder()
     cmd = [
         "ffmpeg", "-y", "-i", input_path,
-        "-vf", drawbox,
+        "-filter_complex", filter_complex,
         "-c:v", encoder_name, *_build_preset_flags(encoder_name, encoder_preset),
         *build_quality_params(encoder_name),
         "-pix_fmt", "yuv420p",
@@ -373,17 +374,19 @@ def apply_post_production(
                 filters.append(lut_adapted)
                 current_tag = out_tag
 
-        # -- Progress bar (drawbox) ------------------------------------------
+        # -- Progress bar (color+overlay for FFmpeg compat) -------------------
         if has_bar:
-            y_expr = "0" if bar_position == "top" else f"ih-{bar_height}"
+            y_overlay = "0" if bar_position == "top" else f"H-{bar_height}"
+            bar_tag = "[__pp_barsrc]"
             out_tag = "[__pp_bar]"
-            drawbox = (
-                f"{current_tag}drawbox=x=0:y={y_expr}:"
-                f"w=iw*t/{duration}:h={bar_height}:"
-                f"color={bar_color}@0.8:thickness=fill"
-                f"{out_tag}"
+            # Generate a solid color bar and overlay it with animated x position
+            filters.append(
+                f"color=c={bar_color}@0.8:s=1080x{bar_height}:d={duration},format=rgba{bar_tag}"
             )
-            filters.append(drawbox)
+            filters.append(
+                f"{current_tag}{bar_tag}overlay=x='(W)*t/{duration}-W':y={y_overlay}"
+                f":shortest=1:format=auto{out_tag}"
+            )
             current_tag = out_tag
 
         # -- Emoji overlays --------------------------------------------------
