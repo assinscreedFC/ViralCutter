@@ -574,7 +574,12 @@ def stage_face_edit(ctx: PipelineContext) -> None:
             active_speaker_decay=args.active_speaker_decay,
             segments_data=ctx.viral_segments.get("segments", []) if ctx.viral_segments else None,
             no_face_mode=args.no_face_mode,
-            zoom_out_factor=args.zoom_out_factor
+            zoom_out_factor=args.zoom_out_factor,
+            # NEW: 1-face visual enhancement params
+            vertical_offset=args.vertical_offset,
+            single_face_zoom=args.single_face_zoom,
+            ema_alpha=args.ema_alpha,
+            detection_resolution=args.detection_resolution,
         )
     else:
         logger.info(i18n("Workflow 3: Skipping Face Crop."))
@@ -785,6 +790,21 @@ def stage_post_production(ctx: PipelineContext) -> None:
                 if dub_segment(video_path, text, args.dubbing_language, dubbed_path, original_volume=args.dubbing_original_volume):
                     logger.info(f"Dubbed: {os.path.basename(dubbed_path)}")
 
+    # NEW: Rename non-retained segments with _DRAFT suffix
+    if ctx.viral_segments and "segments" in ctx.viral_segments:
+        burned_folder = os.path.join(ctx.project_folder, "burned_sub")
+        if os.path.isdir(burned_folder):
+            draft_videos = sorted(glob_mod.glob(os.path.join(burned_folder, "*.mp4")))
+            segments_list = ctx.viral_segments["segments"]
+            for idx, vf in enumerate(draft_videos):
+                if idx < len(segments_list):
+                    seg = segments_list[idx]
+                    if not seg.get("retained", True):
+                        base, ext = os.path.splitext(vf)
+                        draft_path = base + "_DRAFT" + ext
+                        os.rename(vf, draft_path)
+                        logger.info(f"Tagged as DRAFT: {os.path.basename(draft_path)}")
+
 
 # ---------------------------------------------------------------------------
 # Stage 10: Save Config
@@ -825,7 +845,12 @@ def stage_save_config(ctx: PipelineContext) -> None:
                 "focus_active_speaker": args.focus_active_speaker,
                 "active_speaker_mar": args.active_speaker_mar,
                 "active_speaker_score_diff": args.active_speaker_score_diff,
-                "include_motion": args.include_motion
+                "include_motion": args.include_motion,
+                # NEW: 1-face visual params
+                "vertical_offset": args.vertical_offset,
+                "single_face_zoom": args.single_face_zoom,
+                "ema_alpha": args.ema_alpha,
+                "detection_resolution": args.detection_resolution,
             },
             "video_config": {
                 "min_duration": args.min_duration,

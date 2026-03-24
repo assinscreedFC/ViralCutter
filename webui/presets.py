@@ -28,10 +28,11 @@ os.makedirs(MODELS_DIR, exist_ok=True)
 # Face-detection presets
 # ---------------------------------------------------------------------------
 FACE_PRESETS = {
-    "Default (Balanced)": {"thresh": 0.35, "two_face": 0.60, "conf": 0.40, "dead_zone": 150},
-    "Stable (Focus Main)": {"thresh": 0.60, "two_face": 0.80, "conf": 0.60, "dead_zone": 200},
-    "Sensitive (Catch All)": {"thresh": 0.10, "two_face": 0.40, "conf": 0.30, "dead_zone": 100},
-    "High Precision": {"thresh": 0.40, "two_face": 0.65, "conf": 0.75, "dead_zone": 150},
+    "Default (Balanced)": {"thresh": 0.35, "two_face": 0.60, "conf": 0.40, "dead_zone": 150, "vertical_offset": 0.0, "single_face_zoom": 1.0, "ema_alpha": 0.18, "detection_resolution": 480},  # NEW: 1-face visual params
+    "Stable (Focus Main)": {"thresh": 0.60, "two_face": 0.80, "conf": 0.60, "dead_zone": 200, "vertical_offset": 0.0, "single_face_zoom": 1.0, "ema_alpha": 0.12, "detection_resolution": 480},  # NEW
+    "Sensitive (Catch All)": {"thresh": 0.10, "two_face": 0.40, "conf": 0.30, "dead_zone": 100, "vertical_offset": -0.05, "single_face_zoom": 1.2, "ema_alpha": 0.25, "detection_resolution": 480},  # NEW
+    "High Precision": {"thresh": 0.40, "two_face": 0.65, "conf": 0.75, "dead_zone": 150, "vertical_offset": -0.08, "single_face_zoom": 1.0, "ema_alpha": 0.18, "detection_resolution": 560},  # NEW
+    "Cinematic (Rule of Thirds)": {"thresh": 0.35, "two_face": 0.60, "conf": 0.40, "dead_zone": 150, "vertical_offset": -0.08, "single_face_zoom": 1.3, "ema_alpha": 0.12, "detection_resolution": 480},  # NEW: cinematic preset
 }
 
 # ---------------------------------------------------------------------------
@@ -88,10 +89,12 @@ def get_local_models() -> list[str]:
 def apply_face_preset(preset_name: str):
     """Return face-detection parameter values for *preset_name*."""
     if preset_name not in FACE_PRESETS:
-        return [gr.update() for _ in range(4)]
+        return [gr.update() for _ in range(8)]  # NEW: 8 outputs instead of 4
 
     p = FACE_PRESETS[preset_name]
-    return p["thresh"], p["two_face"], p["conf"], p["dead_zone"]
+    return (p["thresh"], p["two_face"], p["conf"], p["dead_zone"],
+            p.get("vertical_offset", 0.0), p.get("single_face_zoom", 1.0),  # NEW
+            p.get("ema_alpha", 0.18), p.get("detection_resolution", 480))   # NEW
 
 
 def apply_experimental_preset(preset_name: str):

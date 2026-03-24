@@ -49,6 +49,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-score", type=int, default=70, help="Minimum viral score to keep a segment (0-100, default: 70)")
     parser.add_argument("--enable-validation", action="store_true", help="Enable LLM validation pass")
     parser.add_argument("--zoom-out-factor", type=float, default=2.2, help="Zoom out factor for 2-face mode (default: 2.2)")
+    # NEW: 1-face visual enhancement params
+    parser.add_argument("--vertical-offset", type=float, default=0.0, help="Vertical crop offset for rule-of-thirds (-0.08 = face higher, default: 0.0)")
+    parser.add_argument("--single-face-zoom", type=float, default=1.0, help="Zoom-out for 1-face mode (1.5 = 50%% more body, default: 1.0)")
+    parser.add_argument("--ema-alpha", type=float, default=0.18, help="EMA smoothing alpha for face tracking (default: 0.18)")
+    parser.add_argument("--detection-resolution", type=int, default=480, help="Resolution for face detection (default: 480)")
     parser.add_argument("--add-music", action="store_true", help="Add background music to final clips")
     parser.add_argument("--music-dir", help="Directory with background music files (default: music/)")
     parser.add_argument("--music-file", help="Specific music file to use")

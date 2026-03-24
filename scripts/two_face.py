@@ -86,7 +86,8 @@ def crop_and_maintain_ar(frame, face_box, target_w, target_h, zoom_out_factor=2.
         cropped = frame[fy:fy + fallback_h, fx:fx + fallback_w]
 
     # Redimensionar para o tamanho alvo final (1080x960)
-    resized = cv2.resize(cropped, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+    interp = cv2.INTER_AREA if cropped.shape[1] >= target_w else cv2.INTER_LANCZOS4
+    resized = cv2.resize(cropped, (target_w, target_h), interpolation=interp)
     return resized
 
 def crop_and_resize_two_faces(frame, face_positions, zoom_out_factor=2.2):

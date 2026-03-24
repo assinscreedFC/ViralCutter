@@ -5,18 +5,18 @@ import logging
 import cv2
 import numpy as np
 import os
-import subprocess
 import mediapipe as mp
 
 from scripts.run_cmd import run as run_cmd
 from scripts.frame_utils import downscale_for_analysis
+from scripts.ffmpeg_utils import get_best_encoder, create_ffmpeg_pipe
 from typing import Callable
 
 logger = logging.getLogger(__name__)
 from scripts.one_face import crop_and_resize_single_face, resize_with_padding, detect_face_or_body, crop_center_zoom, crop_to_smart_region
 from scripts.two_face import crop_and_resize_two_faces, detect_face_or_body_two_faces
 try:
-    from scripts.face_detection_insightface import init_insightface, detect_faces_insightface, crop_and_resize_insightface
+    from scripts.face_detection_insightface import init_insightface, detect_faces_insightface, crop_and_resize_insightface, get_face_embedding, cosine_similarity
     INSIGHTFACE_AVAILABLE = True
 except ImportError:
     INSIGHTFACE_AVAILABLE = False
@@ -63,47 +63,6 @@ def apply_zoom_effect(frame: np.ndarray, current_time: float, zoom_cues: list,
 
     return frame
 
-
-# Global cache for encoder
-CACHED_ENCODER = None
-
-def get_best_encoder() -> tuple[str, str]:
-    global CACHED_ENCODER
-    if CACHED_ENCODER: return CACHED_ENCODER
-    
-    try:
-        # Check available encoders
-        result = run_cmd(['ffmpeg', '-hide_banner', '-encoders'], check=False, text=True)
-        output = result.stdout
-        
-        # Priority: NVENC (NVIDIA) > AMF (AMD) > QSV (Intel) > CPU
-        if "h264_nvenc" in output:
-            logger.info("Encoder Detected: NVIDIA (h264_nvenc)")
-            CACHED_ENCODER = ("h264_nvenc", "p1") # p1=max quality, p7=max speed
-            return CACHED_ENCODER
-        
-        if "h264_amf" in output:
-            logger.info("Encoder Detected: AMD (h264_amf)")
-            CACHED_ENCODER = ("h264_amf", "speed") # quality, speed, balanced
-            return CACHED_ENCODER
-            
-        if "h264_qsv" in output:
-             logger.info("Encoder Detected: Intel QSV (h264_qsv)")
-             CACHED_ENCODER = ("h264_qsv", "veryfast")
-             return CACHED_ENCODER
-             
-        # Mac OS (VideoToolbox)
-        if "h264_videotoolbox" in output:
-             logger.info("Encoder Detected: MacOS (h264_videotoolbox)")
-             CACHED_ENCODER = ("h264_videotoolbox", "default")
-             return CACHED_ENCODER
-
-    except Exception as e:
-        logger.error(f"Error checking encoders: {e}")
-
-    logger.info("Encoder Detected: CPU (libx264)")
-    CACHED_ENCODER = ("libx264", "ultrafast")
-    return CACHED_ENCODER
 
 def get_center_bbox(bbox: list) -> tuple[float, float]:
     # bbox: [x1, y1, x2, y2]
@@ -161,29 +120,7 @@ def generate_short_fallback(input_file: str, output_file: str, index: int, proje
     target_width = 1080
     target_height = 1920
 
-    encoder_name, encoder_preset = get_best_encoder()
-
-    # Use FFmpeg Pipe instead of cv2.VideoWriter to avoid OpenCV backend errors
-    ffmpeg_cmd = [
-        'ffmpeg', '-y', '-loglevel', 'error', '-hide_banner', '-stats',
-        '-f', 'rawvideo',
-        '-vcodec', 'rawvideo',
-        '-s', f'{target_width}x{target_height}',
-        '-pix_fmt', 'bgr24',
-        '-r', str(fps),
-        '-i', '-',
-        '-c:v', encoder_name,
-        '-preset', encoder_preset,
-        '-pix_fmt', 'yuv420p',
-    ]
-
-    # NVENC quality-based variable bitrate (CQ 19 = quasi-lossless)
-    if "nvenc" in encoder_name:
-        ffmpeg_cmd.extend(["-rc:v", "vbr", "-cq", "19", "-maxrate", "8M"])
-
-    ffmpeg_cmd.append(output_file)
-
-    process = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE)
+    process = create_ffmpeg_pipe(output_file, fps, target_width, target_height)
 
     # Smart region state (saliency / motion)
     smart_cx = width // 2
@@ -194,50 +131,58 @@ def generate_short_fallback(input_file: str, output_file: str, index: int, proje
         saliency_detector = cv2.saliency.StaticSaliencySpectralResidual.create()
 
     frame_idx = 0
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
 
-        if no_face_mode == "zoom":
-            result = crop_center_zoom(frame)
-        elif no_face_mode == "saliency":
-            _, sal_map = saliency_detector.computeSaliency(frame)
-            sal_map = (sal_map * 255).astype(np.uint8)
-            m = cv2.moments(sal_map)
-            if m['m00'] > 0:
-                cx = int(m['m10'] / m['m00'])
-                cy = int(m['m01'] / m['m00'])
-                smart_cx = int(smart_cx * 0.90 + cx * 0.10)
-                smart_cy = int(smart_cy * 0.90 + cy * 0.10)
-            result = crop_to_smart_region(frame, smart_cx, smart_cy)
-        elif no_face_mode == "motion":
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            if prev_gray is not None:
-                diff = cv2.absdiff(prev_gray, gray)
-                m = cv2.moments(diff)
-                if m['m00'] > 500:
+            if no_face_mode == "zoom":
+                result = crop_center_zoom(frame)
+            elif no_face_mode == "saliency":
+                _, sal_map = saliency_detector.computeSaliency(frame)
+                sal_map = (sal_map * 255).astype(np.uint8)
+                m = cv2.moments(sal_map)
+                if m['m00'] > 0:
                     cx = int(m['m10'] / m['m00'])
                     cy = int(m['m01'] / m['m00'])
-                    smart_cx = int(smart_cx * 0.85 + cx * 0.15)
-                    smart_cy = int(smart_cy * 0.85 + cy * 0.15)
-            prev_gray = gray
-            result = crop_to_smart_region(frame, smart_cx, smart_cy)
-        else:
-            result = resize_with_padding(frame)
+                    smart_cx = int(smart_cx * 0.90 + cx * 0.10)
+                    smart_cy = int(smart_cy * 0.90 + cy * 0.10)
+                result = crop_to_smart_region(frame, smart_cx, smart_cy)
+            elif no_face_mode == "motion":
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                if prev_gray is not None:
+                    diff = cv2.absdiff(prev_gray, gray)
+                    m = cv2.moments(diff)
+                    if m['m00'] > 500:
+                        cx = int(m['m10'] / m['m00'])
+                        cy = int(m['m01'] / m['m00'])
+                        smart_cx = int(smart_cx * 0.85 + cx * 0.15)
+                        smart_cy = int(smart_cy * 0.85 + cy * 0.15)
+                prev_gray = gray
+                result = crop_to_smart_region(frame, smart_cx, smart_cy)
+            else:
+                result = resize_with_padding(frame)
 
-        try:
-            process.stdin.write(result.tobytes())
-        except (BrokenPipeError, OSError) as e:
-            logger.error("ffmpeg pipe broken at frame %d: %s", frame_idx, e)
-            break
-        frame_idx += 1
+            try:
+                process.stdin.write(result.tobytes())
+            except (BrokenPipeError, OSError) as e:
+                logger.error("ffmpeg pipe broken at frame %d: %s", frame_idx, e)
+                break
+            frame_idx += 1
 
-    cap.release()
-    process.stdin.close()
-    process.wait()
+        cap.release()
+        if not process.stdin.closed:
+            process.stdin.close()
+        process.wait()
 
-    finalize_video(input_file, output_file, index, fps, project_folder, final_folder)
+        finalize_video(input_file, output_file, index, fps, project_folder, final_folder)
+    finally:
+        if cap.isOpened():
+            cap.release()
+        if not process.stdin.closed:
+            process.stdin.close()
+        process.wait()
 
 def finalize_video(input_file: str, output_file: str, index: int, fps: float, project_folder: str, final_folder: str) -> None:
     """Mux audio and video."""
@@ -247,14 +192,13 @@ def finalize_video(input_file: str, output_file: str, index: int, fps: float, pr
 
     if os.path.exists(audio_file) and os.path.getsize(audio_file) > 0:
         final_output = os.path.join(final_folder, f"final-output{str(index).zfill(3)}_processed.mp4")
-        encoder_name, encoder_preset = get_best_encoder()
         command = [
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-stats",
             "-i", output_file,
             "-i", audio_file,
-            "-c:v", encoder_name, "-preset", encoder_preset, "-rc:v", "vbr", "-cq", "19", "-maxrate", "8M",
+            "-c:v", "copy",
             "-c:a", "aac", "-b:a", "192k",
-            "-r", str(fps),
+            "-movflags", "+faststart",
             final_output
         ]
         try:
@@ -314,8 +258,7 @@ def generate_short_mediapipe(input_file: str, output_file: str, index: int, face
         frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_file, fourcc, fps, (1080, 1920))
+        pipe_proc = create_ffmpeg_pipe(output_file, fps)
 
         next_detection_frame = 0
         current_interval = int(5 * fps) # Initial guess
@@ -433,7 +376,11 @@ def generate_short_mediapipe(input_file: str, output_file: str, index: int, face
                 else:
                     result = resize_with_padding(frame)
                 coordinate_log.append({"frame": frame_index, "faces": []})
-                out.write(result)
+                try:
+                    pipe_proc.stdin.write(result.tobytes())
+                except (BrokenPipeError, OSError) as e:
+                    logger.error("ffmpeg pipe broken: %s", e)
+                    break
                 continue
 
             last_frame_face_positions = current_faces
@@ -456,10 +403,15 @@ def generate_short_mediapipe(input_file: str, output_file: str, index: int, face
                 current_time = frame_index / fps
                 result = apply_zoom_effect(result, current_time, zoom_cues)
 
-            out.write(result)
+            try:
+                pipe_proc.stdin.write(result.tobytes())
+            except (BrokenPipeError, OSError) as e:
+                logger.error("ffmpeg pipe broken: %s", e)
+                break
 
         cap.release()
-        out.release()
+        pipe_proc.stdin.close()
+        pipe_proc.wait()
 
         finalize_video(input_file, output_file, index, fps, project_folder, final_folder)
 
@@ -469,8 +421,10 @@ def generate_short_mediapipe(input_file: str, output_file: str, index: int, face
     finally:
         if 'cap' in dir() and cap.isOpened():
             cap.release()
-        if 'out' in dir():
-            out.release()
+        if 'pipe_proc' in dir():
+            if not pipe_proc.stdin.closed:
+                pipe_proc.stdin.close()
+            pipe_proc.wait()
 
 def generate_short_haar(input_file: str, output_file: str, index: int, project_folder: str, final_folder: str, detection_period: float | None = None, no_face_mode: str = "padding") -> None:
     """Face detection using OpenCV Haar Cascades."""
@@ -492,9 +446,8 @@ def generate_short_haar(input_file: str, output_file: str, index: int, project_f
     fps = cap.get(cv2.CAP_PROP_FPS)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(output_file, fourcc, fps, (1080, 1920))
-    
+    pipe_proc = create_ffmpeg_pipe(output_file, fps)
+
     # Logic copied from generate_short_mediapipe
     detection_interval = int(2 * fps) # Default check every 2 seconds
     if detection_period is not None:
@@ -507,77 +460,94 @@ def generate_short_haar(input_file: str, output_file: str, index: int, project_f
     transition_duration = int(fps) # 1 second smooth transition
     transition_frames = []
 
-    for frame_index in range(total_frames):
-        ret, frame = cap.read()
-        if not ret or frame is None:
-            break
+    try:
+        for frame_index in range(total_frames):
+            ret, frame = cap.read()
+            if not ret or frame is None:
+                break
 
-        if frame_index % detection_interval == 0:
-            small_haar, scale_haar = downscale_for_analysis(frame, max_width=480)
-            gray = cv2.cvtColor(small_haar, cv2.COLOR_BGR2GRAY)
-            faces = face_cascade.detectMultiScale(gray, 1.1, 4)
+            if frame_index % detection_interval == 0:
+                small_haar, scale_haar = downscale_for_analysis(frame, max_width=480)
+                gray = cv2.cvtColor(small_haar, cv2.COLOR_BGR2GRAY)
+                faces = face_cascade.detectMultiScale(gray, 1.1, 4)
 
-            detections = []
-            if len(faces) > 0:
-                # Pick largest face
-                largest_face = max(faces, key=lambda f: f[2] * f[3])
-                # Scale coordinates back to original resolution
-                if scale_haar > 1.0:
-                    largest_face = tuple(int(c * scale_haar) for c in largest_face)
-                # Ensure int type
-                detections = [tuple(map(int, largest_face))]
+                detections = []
+                if len(faces) > 0:
+                    # Pick largest face
+                    largest_face = max(faces, key=lambda f: f[2] * f[3])
+                    # Scale coordinates back to original resolution
+                    if scale_haar > 1.0:
+                        largest_face = tuple(int(c * scale_haar) for c in largest_face)
+                    # Ensure int type
+                    detections = [tuple(map(int, largest_face))]
 
-            if detections:
-                if last_frame_face_positions is not None:
-                    # Simple linear interpolation for smoothing
-                    start_faces = np.array(last_frame_face_positions)
-                    end_faces = np.array(detections)
-                    
-                    # Generate transition frames
-                    steps = transition_duration
-                    transition_frames = []
-                    for s in range(steps):
-                        t = (s + 1) / steps
-                        interp = (1 - t) * start_faces + t * end_faces
-                        transition_frames.append(interp.astype(int).tolist()) # Convert back to list of lists/tuples
+                if detections:
+                    if last_frame_face_positions is not None:
+                        # Simple linear interpolation for smoothing
+                        start_faces = np.array(last_frame_face_positions)
+                        end_faces = np.array(detections)
+
+                        # Generate transition frames
+                        steps = transition_duration
+                        transition_frames = []
+                        for s in range(steps):
+                            t = (s + 1) / steps
+                            interp = (1 - t) * start_faces + t * end_faces
+                            transition_frames.append(interp.astype(int).tolist()) # Convert back to list of lists/tuples
+                    else:
+                        transition_frames = []
+                    last_detected_faces = detections
+                    last_success_frame = frame_index
                 else:
-                    transition_frames = []
-                last_detected_faces = detections
-                last_success_frame = frame_index
+                    pass
+
+            if len(transition_frames) > 0:
+                current_faces = transition_frames[0]
+                transition_frames = transition_frames[1:]
+            elif last_detected_faces is not None and (frame_index - last_success_frame) <= max_frames_without_detection:
+                current_faces = last_detected_faces
             else:
-                pass
+                # No face detected for a while -> Center/Padding fallback
+                if no_face_mode == "zoom":
+                    result = crop_center_zoom(frame)
+                else:
+                    result = resize_with_padding(frame)
+                try:
+                    pipe_proc.stdin.write(result.tobytes())
+                except (BrokenPipeError, OSError) as e:
+                    logger.error("ffmpeg pipe broken: %s", e)
+                    break
+                continue
 
-        if len(transition_frames) > 0:
-            current_faces = transition_frames[0]
-            transition_frames = transition_frames[1:]
-        elif last_detected_faces is not None and (frame_index - last_success_frame) <= max_frames_without_detection:
-            current_faces = last_detected_faces
-        else:
-            # No face detected for a while -> Center/Padding fallback
-            if no_face_mode == "zoom":
-                result = crop_center_zoom(frame)
+            last_frame_face_positions = current_faces
+            # haar detections are list containing one tuple (x,y,w,h)
+            # current_faces is list of one tuple
+            if isinstance(current_faces, list):
+                 face_bbox = current_faces[0]
             else:
-                result = resize_with_padding(frame)
-            out.write(result)
-            continue
+                 face_bbox = current_faces # Should be handled
 
-        last_frame_face_positions = current_faces
-        # haar detections are list containing one tuple (x,y,w,h)
-        # current_faces is list of one tuple
-        if isinstance(current_faces, list):
-             face_bbox = current_faces[0]
-        else:
-             face_bbox = current_faces # Should be handled
+            result = crop_and_resize_single_face(frame, face_bbox)
+            try:
+                pipe_proc.stdin.write(result.tobytes())
+            except (BrokenPipeError, OSError) as e:
+                logger.error("ffmpeg pipe broken: %s", e)
+                break
 
-        result = crop_and_resize_single_face(frame, face_bbox)
-        out.write(result)
+        cap.release()
+        if not pipe_proc.stdin.closed:
+            pipe_proc.stdin.close()
+        pipe_proc.wait()
 
-    cap.release()
-    out.release()
-    
-    finalize_video(input_file, output_file, index, fps, project_folder, final_folder)
+        finalize_video(input_file, output_file, index, fps, project_folder, final_folder)
+    finally:
+        if cap.isOpened():
+            cap.release()
+        if not pipe_proc.stdin.closed:
+            pipe_proc.stdin.close()
+        pipe_proc.wait()
 
-def generate_short_insightface(input_file: str, output_file: str, index: int, project_folder: str, final_folder: str, face_mode: str = "auto", detection_period: float | dict | None = None, filter_threshold: float = 0.35, two_face_threshold: float = 0.60, confidence_threshold: float = 0.30, dead_zone: int = 40, focus_active_speaker: bool = False, active_speaker_mar: float = 0.03, active_speaker_score_diff: float = 1.5, include_motion: bool = False, active_speaker_motion_deadzone: float = 3.0, active_speaker_motion_sensitivity: float = 0.05, active_speaker_decay: float = 2.0, no_face_mode: str = "padding", zoom_out_factor: float = 2.2) -> str:
+def generate_short_insightface(input_file: str, output_file: str, index: int, project_folder: str, final_folder: str, face_mode: str = "auto", detection_period: float | dict | None = None, filter_threshold: float = 0.35, two_face_threshold: float = 0.60, confidence_threshold: float = 0.30, dead_zone: int = 40, focus_active_speaker: bool = False, active_speaker_mar: float = 0.03, active_speaker_score_diff: float = 1.5, include_motion: bool = False, active_speaker_motion_deadzone: float = 3.0, active_speaker_motion_sensitivity: float = 0.05, active_speaker_decay: float = 2.0, no_face_mode: str = "padding", zoom_out_factor: float = 2.2, ema_alpha: float = 0.18, detection_resolution: int = 480, vertical_offset: float = 0.0, single_face_zoom: float = 1.0) -> str:
     """Face detection using InsightFace (SOTA)."""
     logger.info(f"Processing (InsightFace): {input_file} | Mode: {face_mode}")
     
@@ -591,10 +561,8 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     
-    # Using mp4v for container, but final mux will fix encoding
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(output_file, fourcc, fps, (1080, 1920))
-    
+    pipe_proc = create_ffmpeg_pipe(output_file, fps)
+
     # Dynamic Interval Logic
     next_detection_frame = 0
 
@@ -603,9 +571,11 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
     last_success_frame = -1000
     max_frames_without_detection = int(3.0 * fps) # 3 seconds timeout
 
-    smooth_bbox_centers = None   # list of (cx_float, cy_float) — EMA state per face
-    EMA_ALPHA = 0.18             # Smoothing factor: 0.15=very smooth, 0.25=responsive
-    NOISE_THRESHOLD = 30         # pixels — ignore sensor noise below this
+    smooth_bbox_centers = None   # FIX 0B: list of (cx, cy, w_half, h_half) — EMA state per face (center + dimensions)
+    EMA_ALPHA = ema_alpha        # FIX: use parameter instead of hardcoded value
+    NOISE_THRESHOLD = dead_zone if dead_zone > 0 else 30  # FIX 0A: use dead_zone parameter instead of hardcoded 30
+    INTERP_ALPHA = 0.3           # FIX 0C: frame-by-frame interpolation factor (0.2=smooth, 0.5=responsive)
+    render_faces = None          # FIX 0C: current render position (interpolated towards last_detected_faces)
 
     # Current state of face mode (1 or 2)
     # If auto, we decide per detection interval
@@ -629,8 +599,6 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
     # Timeline tracking: list of (frame_index, mode_str)
     # We will compress this later.
     timeline_frames = [] # Store mode for *every written frame* or at least detection points
-    
-    timeline_frames = [] # Store mode for *every written frame* or at least detection points
     coordinate_log = [] # Store raw face coordinates frame-by-frame
     
     # For Active Speaker Logic
@@ -638,6 +606,9 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
     # Since we don't have ID tracker, we blindly assign score to faces based on proximity to previous frame
     # A list of dictionaries: [{'center': (x,y), 'activity': score}, ...]
     faces_activity_state = []
+
+    # FEAT: Re-ID — lock onto the first detected person via embedding
+    target_embedding = None
 
     # Load zoom_cues from viral_segments.txt
     segments_path = os.path.join(project_folder, "viral_segments.txt")
@@ -661,7 +632,7 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
 
         if frame_index >= next_detection_frame:
             # Detect faces on downscaled frame for performance
-            small_if, scale_if = downscale_for_analysis(frame, max_width=480)
+            small_if, scale_if = downscale_for_analysis(frame, max_width=detection_resolution)  # FIX: use detection_resolution parameter
             faces = detect_faces_insightface(small_if)
             # Scale bounding boxes and landmarks back to original resolution
             if faces:
@@ -754,6 +725,7 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
                 # FORCE RESET HISTORY so it doesn't "stick" to the last face found
                 last_detected_faces = None
                 smooth_bbox_centers = None  # Reset EMA state too
+                render_faces = None         # FIX 0C: Reset interpolation state too
                 faces_activity_state = []
                 zoom_ema_bbox = None # Reset smoothing too
             # ---------------------------
@@ -923,11 +895,15 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
                      # Scale bounding boxes back to original resolution
                      if faces2 and scale_if2 > 1.0:
                          for f in faces2:
-                             f['bbox'] = f['bbox'] * scale_if2
+                             f['bbox'] = (f['bbox'] * scale_if2).astype(int)  # FIX: ensure int for array slicing
                              if 'landmark_3d_68' in f and f['landmark_3d_68'] is not None:
                                  f['landmark_3d_68'][:, :2] *= scale_if2
                              if 'landmark_2d_106' in f and f['landmark_2d_106'] is not None:
                                  f['landmark_2d_106'][:, :2] *= scale_if2
+                     elif faces2:
+                         # FIX: InsightFace returns float32 bbox — ensure int even without scaling
+                         for f in faces2:
+                             f['bbox'] = f['bbox'].astype(int)
                      
                      # --- Apply same filtering to lookahead ---
                      valid_faces2 = []
@@ -956,34 +932,65 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
                      buffered_frame = frame2 # Store for next iteration
 
             detections = []
-            
+
+            # FEAT: Re-ID scoring — compute cosine similarity to locked target
+            if target_embedding is not None and faces:
+                for f in faces:
+                    emb = get_face_embedding(f)
+                    if emb is not None:
+                        f['reid_score'] = cosine_similarity(target_embedding, emb)
+                    else:
+                        f['reid_score'] = 0.0
+
             if len(faces) >= target_faces:
+                # FEAT: Re-ID — capture target embedding from first valid detection
+                if target_embedding is None and target_faces == 1:
+                    # Lock onto the first detected face (largest by area)
+                    best_face = max(faces, key=lambda f: f.get('effective_area', 0))
+                    emb = get_face_embedding(best_face)
+                    if emb is not None:
+                        target_embedding = emb
+                        logger.info("FEAT: Re-ID target locked (512-D embedding captured)")
+
                 # --- FACE TRACKING / SORTING ---
                 # Instead of just Area, we prioritize faces closer to the LAST detected face
                 # This prevents switching to a background person if sizes are similar
-                
-                if last_detected_faces is not None and len(last_detected_faces) == target_faces:
+
+                # FEAT: Re-ID preferred face selection (1-face mode only)
+                if target_embedding is not None and target_faces == 1:
+                    faces_with_reid = [f for f in faces if f.get('reid_score', 0) > 0.5]
+                    if faces_with_reid:
+                        # Re-ID match found — sort by similarity (best first)
+                        faces_sorted = sorted(faces_with_reid, key=lambda f: f['reid_score'], reverse=True)
+                        # Skip the standard proximity/area sort below
+                        faces_sorted_by_reid = True
+                    else:
+                        faces_sorted_by_reid = False
+                else:
+                    faces_sorted_by_reid = False
+
+                if not faces_sorted_by_reid and last_detected_faces is not None and len(last_detected_faces) == target_faces:
                    # Define score function: High Area is good, Low Distance to old is good.
                    # But simpler: calculate Intersection over Union (IOU) or Distance to old bbox center
-                   
+
                    # We want to match existing slots.
                    # For 1 face:
                    if target_faces == 1:
                        old_center = get_center_bbox(last_detected_faces[0])
-                       
+
                        def sort_score(f):
                            # Distance score (lower is better)
                            dist = np.sqrt((f['center'][0] - old_center[0])**2 + (f['center'][1] - old_center[1])**2)
                            # EFFECTIVE Area score (higher is better)
                            # Weight distance more heavily to keep consistency, but allow activity to swap focus if significant
                            # normalized score?
-                           return dist - (f['effective_area'] * 0.0001) 
-                       
+                           return dist - (f['effective_area'] * 0.0001)
+
                        faces_sorted = sorted(faces, key=sort_score)
                    else:
                        # For 2 faces, just sort by effective area for now as proximity sort happens later
                        faces_sorted = sorted(faces, key=lambda f: f['effective_area'], reverse=True)
-                else:
+                elif not faces_sorted_by_reid:
                    # No history, sort by effective area
                    if focus_active_speaker and target_faces == 1:
                         # Pick the one with highest activity score
@@ -1017,40 +1024,52 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
                  else:
                      detections = []
 
-            if detections:
-                # --- EMA SMOOTHING ---
-                new_centers = [get_center_bbox(d) for d in detections]
+            # FEAT: Save previous detections for adaptive interval drift check
+            prev_detected_faces = last_detected_faces
 
-                if smooth_bbox_centers is not None and len(smooth_bbox_centers) == len(new_centers):
+            if detections:
+                # --- EMA SMOOTHING (FIX 0B: smooth center + dimensions) ---
+                new_states = []  # FIX 0B: (cx, cy, w_half, h_half) per detection
+                for d in detections:
+                    if isinstance(d, np.ndarray):
+                        x1, y1, x2, y2 = d[:4]
+                    else:
+                        x1, y1, x2, y2 = d[0], d[1], d[2], d[3]
+                    cx = (x1 + x2) / 2.0
+                    cy = (y1 + y2) / 2.0
+                    wh = (x2 - x1) / 2.0
+                    hh = (y2 - y1) / 2.0
+                    new_states.append((cx, cy, wh, hh))
+
+                if smooth_bbox_centers is not None and len(smooth_bbox_centers) == len(new_states):
                     smoothed = []
-                    for (old_cx, old_cy), (new_cx, new_cy) in zip(smooth_bbox_centers, new_centers):
+                    for (old_cx, old_cy, old_wh, old_hh), (new_cx, new_cy, new_wh, new_hh) in zip(smooth_bbox_centers, new_states):
                         dist = ((old_cx - new_cx)**2 + (old_cy - new_cy)**2) ** 0.5
                         if dist < NOISE_THRESHOLD:
-                            smoothed.append((old_cx, old_cy))
+                            # FIX 0B: still smooth dimensions even if center is in dead zone
+                            s_wh = EMA_ALPHA * new_wh + (1 - EMA_ALPHA) * old_wh
+                            s_hh = EMA_ALPHA * new_hh + (1 - EMA_ALPHA) * old_hh
+                            smoothed.append((old_cx, old_cy, s_wh, s_hh))
                         else:
                             s_cx = EMA_ALPHA * new_cx + (1 - EMA_ALPHA) * old_cx
                             s_cy = EMA_ALPHA * new_cy + (1 - EMA_ALPHA) * old_cy
-                            smoothed.append((s_cx, s_cy))
+                            s_wh = EMA_ALPHA * new_wh + (1 - EMA_ALPHA) * old_wh
+                            s_hh = EMA_ALPHA * new_hh + (1 - EMA_ALPHA) * old_hh
+                            smoothed.append((s_cx, s_cy, s_wh, s_hh))
                     smooth_bbox_centers = smoothed
 
-                    # Rebuild bboxes with smoothed centers, keep original dimensions
+                    # FIX 0B: Rebuild bboxes with smoothed centers AND smoothed dimensions
                     smoothed_detections = []
-                    for i, det in enumerate(detections):
-                        if isinstance(det, np.ndarray):
-                            x1, y1, x2, y2 = det[:4]
-                        else:
-                            x1, y1, x2, y2 = det[0], det[1], det[2], det[3]
-                        w_half = (x2 - x1) / 2
-                        h_half = (y2 - y1) / 2
-                        cx, cy = smooth_bbox_centers[i]
+                    for (s_cx, s_cy, s_wh, s_hh) in smooth_bbox_centers:
                         smoothed_detections.append(np.array([
-                            int(cx - w_half), int(cy - h_half),
-                            int(cx + w_half), int(cy + h_half)
+                            int(s_cx - s_wh), int(s_cy - s_hh),
+                            int(s_cx + s_wh), int(s_cy + s_hh)
                         ]))
                     detections = smoothed_detections
                 else:
                     # First detection or face count changed: init EMA state
-                    smooth_bbox_centers = [(float(c[0]), float(c[1])) for c in new_centers]
+                    # FIX 0B: store (cx, cy, w_half, h_half) instead of just (cx, cy)
+                    smooth_bbox_centers = list(new_states)
 
                 last_detected_faces = detections
                 last_success_frame = frame_index
@@ -1075,11 +1094,38 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
                 step = int(1.0 * fps) # 1s for 2 faces
             else:
                 step = 5 # 5 frames for 1 face (~0.16s at 30fps)
-            
+
+            # FEAT: Adaptive detection interval — override step based on tracking stability
+            if not detections:
+                # Lost face — detect more aggressively to recover fast
+                step = max(1, step // 2)
+            elif prev_detected_faces is not None and len(prev_detected_faces) > 0 and len(detections) > 0:
+                # Check positional stability between consecutive detections
+                new_center = get_center_bbox(detections[0])
+                old_center = get_center_bbox(prev_detected_faces[0])
+                drift = ((new_center[0] - old_center[0])**2 + (new_center[1] - old_center[1])**2) ** 0.5
+                if drift < 50:
+                    step = min(15, step + 1)  # Stable — slow down detection (save GPU)
+                else:
+                    step = 5  # Moving — standard rate
+
             next_detection_frame = frame_index + step
 
         if last_detected_faces is not None and (frame_index - last_success_frame) <= max_frames_without_detection:
-            current_faces = last_detected_faces
+            # FIX 0C: Interpolate render_faces towards last_detected_faces every frame
+            if render_faces is None or len(render_faces) != len(last_detected_faces):
+                # First frame or face count changed: snap to target
+                render_faces = [np.array(f, dtype=float) for f in last_detected_faces]
+            else:
+                interpolated = []
+                for rf, tf in zip(render_faces, last_detected_faces):
+                    rf_f = np.array(rf, dtype=float)
+                    tf_f = np.array(tf, dtype=float)
+                    rf_f = rf_f + INTERP_ALPHA * (tf_f - rf_f)  # FIX 0C: linear interpolation per frame
+                    interpolated.append(rf_f)
+                render_faces = interpolated
+            # FIX 0C: use interpolated render_faces for crop instead of raw detection
+            current_faces = [np.array(rf, dtype=int) for rf in render_faces]
         else:
             # Fallback for this frame
             if no_face_mode == "zoom":
@@ -1108,7 +1154,11 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
                 result = crop_to_smart_region(frame, smart_cx, smart_cy)
             else:
                 result = resize_with_padding(frame)
-            out.write(result)
+            try:
+                pipe_proc.stdin.write(result.tobytes())
+            except (BrokenPipeError, OSError) as e:
+                logger.error("ffmpeg pipe broken: %s", e)
+                break
             timeline_frames.append((frame_index, "1")) # Fix: Ensure fallback is treated as single face for subs
 
             # Fix XML Log sync (Empty faces for fallback)
@@ -1134,7 +1184,7 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
              frame_1_face_count += 1
              # 1 face
              # current_faces[0] is [x1, y1, x2, y2]
-             result = crop_and_resize_insightface(frame, current_faces[0])
+             result = crop_and_resize_insightface(frame, current_faces[0], vertical_offset=vertical_offset, single_face_zoom=single_face_zoom)  # FIX: pass visual params
              timeline_frames.append((frame_index, "1"))
              
         # Capture Coordinates (Frame-by-Frame)
@@ -1170,10 +1220,16 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
             current_time = frame_index / fps
             result = apply_zoom_effect(result, current_time, zoom_cues)
 
-        out.write(result)
+        try:
+            pipe_proc.stdin.write(result.tobytes())
+        except (BrokenPipeError, OSError) as e:
+            logger.error("ffmpeg pipe broken: %s", e)
+            break
 
     cap.release()
-    out.release()
+    if not pipe_proc.stdin.closed:
+        pipe_proc.stdin.close()
+    pipe_proc.wait()
 
     # Compress timeline into segments
     # [(start_time, end_time, mode), ...]
@@ -1231,7 +1287,7 @@ def generate_short_insightface(input_file: str, output_file: str, index: int, pr
     return "1"
 
 
-def edit(project_folder: str = "tmp", face_model: str = "insightface", face_mode: str = "auto", detection_period: float | dict | None = None, filter_threshold: float = 0.35, two_face_threshold: float = 0.60, confidence_threshold: float = 0.30, dead_zone: int = 40, focus_active_speaker: bool = False, active_speaker_mar: float = 0.03, active_speaker_score_diff: float = 1.5, include_motion: bool = False, active_speaker_motion_deadzone: float = 3.0, active_speaker_motion_sensitivity: float = 0.05, active_speaker_decay: float = 2.0, segments_data: dict | None = None, no_face_mode: str = "padding", zoom_out_factor: float = 2.2) -> None:
+def edit(project_folder: str = "tmp", face_model: str = "insightface", face_mode: str = "auto", detection_period: float | dict | None = None, filter_threshold: float = 0.35, two_face_threshold: float = 0.60, confidence_threshold: float = 0.30, dead_zone: int = 40, focus_active_speaker: bool = False, active_speaker_mar: float = 0.03, active_speaker_score_diff: float = 1.5, include_motion: bool = False, active_speaker_motion_deadzone: float = 3.0, active_speaker_motion_sensitivity: float = 0.05, active_speaker_decay: float = 2.0, segments_data: dict | None = None, no_face_mode: str = "padding", zoom_out_factor: float = 2.2, ema_alpha: float = 0.18, detection_resolution: int = 480, vertical_offset: float = 0.0, single_face_zoom: float = 1.0) -> None:
     # Lazy init solutions only when needed to avoid AttributeError if import failed partially
     mp_face_detection = None
     mp_face_mesh = None
@@ -1343,14 +1399,18 @@ def edit(project_folder: str = "tmp", face_model: str = "insightface", face_mode
             if insightface_working:
                 try:
                     # Capture returned mode
-                    res = generate_short_insightface(input_file, output_file, index, project_folder, final_folder, face_mode=face_mode, detection_period=detection_period, 
+                    res = generate_short_insightface(input_file, output_file, index, project_folder, final_folder, face_mode=face_mode, detection_period=detection_period,
                                                      filter_threshold=filter_threshold, two_face_threshold=two_face_threshold, confidence_threshold=confidence_threshold, dead_zone=dead_zone, focus_active_speaker=focus_active_speaker,
                                                      active_speaker_mar=active_speaker_mar, active_speaker_score_diff=active_speaker_score_diff, include_motion=include_motion,
                                                      active_speaker_motion_deadzone=active_speaker_motion_deadzone,
                                                      active_speaker_motion_sensitivity=active_speaker_motion_sensitivity,
                                                      active_speaker_decay=active_speaker_decay,
                                                      no_face_mode=no_face_mode,
-                                                     zoom_out_factor=zoom_out_factor)
+                                                     zoom_out_factor=zoom_out_factor,
+                                                     ema_alpha=ema_alpha,                    # FIX: pass new params
+                                                     detection_resolution=detection_resolution,
+                                                     vertical_offset=vertical_offset,          # FIX: pass visual params
+                                                     single_face_zoom=single_face_zoom)
                     if res: detected_mode = res
                     success = True
                 except Exception as e:

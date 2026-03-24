@@ -4,6 +4,7 @@ import logging
 import os
 import shutil
 from scripts.run_cmd import run as run_cmd
+from scripts.ffmpeg_utils import get_best_encoder, build_quality_params, _build_preset_flags
 import sys
 import tempfile
 
@@ -24,41 +25,25 @@ def burn_video_file(video_path: str, subtitle_path: str, output_path: str) -> tu
 
     subtitle_file_ffmpeg = tmp_ass.replace('\\', '/').replace(':', '\\:').replace("'", "'\\\\''")
 
-    def run_ffmpeg(encoder, preset, additional_args=None):
-        if additional_args is None:
-            additional_args = []
-        cmd = [
-            "ffmpeg", "-y", "-loglevel", "error", "-hide_banner",
-            '-i', video_path,
-            '-vf', f"subtitles='{subtitle_file_ffmpeg}'",
-            '-c:v', encoder,
-            '-preset', preset,
-            '-rc:v', 'vbr',
-            '-cq', '19',
-            '-maxrate', '8M',
-            '-pix_fmt', 'yuv420p',
-            '-c:a', 'copy',
-            output_path
-        ] + additional_args
-        run_cmd(cmd)
-
+    encoder_name, encoder_preset = get_best_encoder()
+    cmd = [
+        "ffmpeg", "-y", "-loglevel", "error", "-hide_banner",
+        '-i', video_path,
+        '-vf', f"subtitles='{subtitle_file_ffmpeg}'",
+        '-c:v', encoder_name,
+        *_build_preset_flags(encoder_name, encoder_preset),
+        *build_quality_params(encoder_name),
+        '-pix_fmt', 'yuv420p',
+        '-c:a', 'copy',
+        output_path,
+    ]
     try:
-        try:
-            run_ffmpeg("h264_nvenc", "p1")
-            return True, "NVENC Success"
-        except Exception as e:
-            logger.error(f"Erro com NVENC ({str(e)}). Tentando CPU (libx264)...")
-            try:
-                run_ffmpeg("libx264", "ultrafast")
-                return True, "CPU Success"
-            except Exception as e2:
-                err_msg = f"ERRO FATAL ao queimar legendas em {os.path.basename(video_path)}: {e2}"
-                if hasattr(e2, 'stderr') and e2.stderr:
-                    err_msg += f" | FFmpeg Log: {e2.stderr.decode('utf-8')}"
-                logger.error(err_msg)
-                return False, err_msg
+        run_cmd(cmd)
+        return True, f"{encoder_name} Success"
     except Exception as e:
-        return False, str(e)
+        err_msg = f"Error burning subtitles on {os.path.basename(video_path)}: {e}"
+        logger.error(err_msg)
+        return False, err_msg
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 

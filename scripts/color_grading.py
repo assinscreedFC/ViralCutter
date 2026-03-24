@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from scripts.run_cmd import run as run_cmd
+from scripts.ffmpeg_utils import get_best_encoder, build_quality_params, _build_preset_flags
 
 logger = logging.getLogger(__name__)
 
@@ -65,11 +66,14 @@ def apply_lut(
         f"[a][g]blend=all_mode=normal:all_opacity={intensity}"
     )
 
+    encoder_name, encoder_preset = get_best_encoder()
     cmd = [
         "ffmpeg", "-y",
         "-i", input_path,
         "-vf", vf,
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+        "-c:v", encoder_name, *_build_preset_flags(encoder_name, encoder_preset),
+        *build_quality_params(encoder_name),
+        "-pix_fmt", "yuv420p",
         "-c:a", "copy",
         output_path,
     ]

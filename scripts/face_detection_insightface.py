@@ -98,9 +98,34 @@ def detect_faces_insightface(frame):
              res['landmark_2d_106'] = face.landmark_2d_106
         if hasattr(face, 'landmark_3d_68') and face.landmark_3d_68 is not None:
              res['landmark_3d_68'] = face.landmark_3d_68
-             
+        # FEAT: Re-ID embedding (512-D from recognition module)
+        if hasattr(face, 'embedding') and face.embedding is not None:
+             res['embedding'] = face.embedding
+        if hasattr(face, 'normed_embedding') and face.normed_embedding is not None:
+             res['normed_embedding'] = face.normed_embedding
+
         results.append(res)
     return results
+
+
+# FEAT: Re-ID helpers — embedding extraction and cosine similarity
+def get_face_embedding(face_dict: dict) -> np.ndarray | None:
+    """Extract 512-D embedding from an InsightFace detection result.
+    Returns None if embedding not available."""
+    emb = face_dict.get('normed_embedding')  # prefer normalized
+    if emb is None:
+        emb = face_dict.get('embedding')
+    if emb is not None and len(emb) > 0:
+        return emb
+    return None
+
+
+def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+    """Cosine similarity between two embeddings."""
+    dot = np.dot(a, b)
+    norm = np.linalg.norm(a) * np.linalg.norm(b)
+    return float(dot / norm) if norm > 0 else 0.0
+
 
 def check_crop_quality(crop_width: int, target_width: int, min_ratio: float = 0.45) -> bool:
     """Vérifie si le crop a assez de résolution pour l'upscale.
@@ -126,11 +151,14 @@ def crop_center_fallback(frame, target_width=1080, target_height=1920):
     return cv2.resize(cropped, (target_width, target_height), interpolation=cv2.INTER_AREA)
 
 
-def crop_and_resize_insightface(frame, face_bbox, target_width=1080, target_height=1920):
+def crop_and_resize_insightface(frame, face_bbox, target_width=1080, target_height=1920,
+                                vertical_offset: float = 0.0, single_face_zoom: float = 1.0):  # NEW: rule-of-thirds + zoom-out params
     """
     Crops and resizes the frame to target dimensions centered on the face_bbox.
     face_bbox: [x1, y1, x2, y2]
     Includes quality gate: falls back to center crop if face zoom would degrade quality.
+    vertical_offset: shifts crop vertically (-0.08 = face toward upper third). Default 0.0.
+    single_face_zoom: zoom-out factor for 1-face mode (1.5 = 50% more body visible). Default 1.0.
     """
     h, w, _ = frame.shape
     x1, y1, x2, y2 = face_bbox
@@ -146,6 +174,14 @@ def crop_and_resize_insightface(frame, face_bbox, target_width=1080, target_heig
         source_w = w
         source_h = int(source_w * (target_height / target_width))
 
+    # NEW: single_face_zoom — expand/shrink crop area (>1.0 = more body, <1.0 = zoom in)
+    if single_face_zoom != 1.0:
+        source_h = min(h, int(source_h * single_face_zoom))
+        source_w = int(source_h * (target_width / target_height))
+        if source_w > w:
+            source_w = w
+            source_h = int(source_w * (target_height / target_width))
+
     # Quality gate: si le crop est trop petit, fallback center crop
     if not check_crop_quality(source_w, target_width):
         return crop_center_fallback(frame, target_width, target_height)
@@ -153,6 +189,9 @@ def crop_and_resize_insightface(frame, face_bbox, target_width=1080, target_heig
     # Calculate top-left corner of the crop
     crop_x1 = face_center_x - (source_w // 2)
     crop_y1 = face_center_y - (source_h // 2)
+
+    # NEW: vertical_offset — shift crop for rule-of-thirds framing
+    crop_y1 += int(h * vertical_offset)
 
     # Adjust to stay within bounds
     if crop_x1 < 0:
@@ -172,7 +211,8 @@ def crop_and_resize_insightface(frame, face_bbox, target_width=1080, target_heig
     cropped = frame[crop_y1:crop_y2, crop_x1:crop_x2]
 
     # Resize to final target
-    result = cv2.resize(cropped, (target_width, target_height), interpolation=cv2.INTER_LINEAR)
+    interp = cv2.INTER_AREA if cropped.shape[1] >= target_width else cv2.INTER_LANCZOS4
+    result = cv2.resize(cropped, (target_width, target_height), interpolation=interp)
 
     return result
 

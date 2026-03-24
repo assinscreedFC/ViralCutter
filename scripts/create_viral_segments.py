@@ -443,12 +443,12 @@ def score_segments(segments: list[dict], ai_mode: str, api_key: str | None = Non
             if i in score_map:
                 seg["viral_score"] = score_map[i].get("total", 0)
                 seg["score_details"] = score_map[i]
-                if seg["viral_score"] >= min_score:
-                    scored_segments.append(seg)
-                else:
-                    logger.info(f"[SCORING] Segment '{seg.get('title', '')}' filtré (score={seg['viral_score']} < {min_score})")
+                seg["retained"] = seg["viral_score"] >= min_score  # NEW: tag au lieu de filtrer
+                if not seg["retained"]:
+                    logger.info(f"[SCORING] Segment '{seg.get('title', '')}' tagged as DRAFT (score={seg['viral_score']} < {min_score})")
             else:
-                scored_segments.append(seg)  # Garder si pas de score
+                seg["retained"] = True  # NEW: pas de score = retenu par defaut
+            scored_segments.append(seg)  # FIX: TOUJOURS ajouter, ne plus filtrer
 
         scored_segments.sort(key=lambda x: x.get("viral_score", x.get("score", 0)), reverse=True)
         logger.info(f"[INFO] Scoring terminé: {len(scored_segments)}/{len(segments)} segments retenus (seuil={min_score})")

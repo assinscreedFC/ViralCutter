@@ -30,6 +30,7 @@ import json
 import argparse
 
 from scripts.run_cmd import run as run_cmd
+from scripts.ffmpeg_utils import get_best_encoder, build_quality_params, _build_preset_flags
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +181,7 @@ def stack_videos(
 
     video_filter = _build_ffmpeg_filter(main_duration, available_distraction, main_crop_y=main_crop_y, distraction_ratio=distraction_ratio)
 
+    encoder_name, encoder_preset = get_best_encoder()
     cmd = [
         "ffmpeg",
         "-y",
@@ -189,11 +191,10 @@ def stack_videos(
         "-map", "[v]",
         "-map", "0:a?",       # audio du clip principal uniquement (optionnel)
         "-t", str(main_duration),
-        "-c:v", "h264_nvenc",
-        "-preset", "p1",
-        "-rc:v", "vbr",
-        "-cq", "19",
-        "-maxrate", "8M",
+        "-c:v", encoder_name,
+        *_build_preset_flags(encoder_name, encoder_preset),
+        *build_quality_params(encoder_name),
+        "-pix_fmt", "yuv420p",
         "-c:a", "aac",
         "-b:a", "192k",
         "-movflags", "+faststart",

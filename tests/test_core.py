@@ -496,32 +496,20 @@ class TestGetBestEncoder:
     """Tests pour get_best_encoder() avec mock de subprocess/ffmpeg."""
 
     def _import_fresh(self):
-        """Importe le module avec les deps lourdes mockees et reset le cache."""
+        """Importe le module ffmpeg_utils et reset le cache."""
         import importlib
-        # Mock heavy dependencies before import
-        mocks = {}
-        for mod in ["cv2", "numpy", "mediapipe", "scripts.one_face", "scripts.two_face",
-                     "scripts.face_detection_insightface"]:
-            if mod not in sys.modules:
-                mocks[mod] = MagicMock()
-                sys.modules[mod] = mocks[mod]
 
-        if "scripts.edit_video" in sys.modules:
-            importlib.reload(sys.modules["scripts.edit_video"])
+        if "scripts.ffmpeg_utils" in sys.modules:
+            importlib.reload(sys.modules["scripts.ffmpeg_utils"])
         else:
-            import scripts.edit_video
+            import scripts.ffmpeg_utils
 
-        mod = sys.modules["scripts.edit_video"]
+        mod = sys.modules["scripts.ffmpeg_utils"]
         mod.CACHED_ENCODER = None  # Reset cache
-        return mod, mocks
-
-    def _cleanup_mocks(self, mocks):
-        for mod in mocks:
-            if mod in sys.modules and sys.modules[mod] is mocks[mod]:
-                del sys.modules[mod]
+        return mod
 
     def test_nvidia_detected(self):
-        mod, mocks = self._import_fresh()
+        mod = self._import_fresh()
         try:
             with patch("subprocess.run") as mock_run:
                 mock_run.return_value = MagicMock(stdout="... h264_nvenc ... h264_amf ...")
@@ -530,32 +518,31 @@ class TestGetBestEncoder:
                 assert result[1] == "p1"
         finally:
             mod.CACHED_ENCODER = None
-            self._cleanup_mocks(mocks)
 
     def test_amd_detected(self):
-        mod, mocks = self._import_fresh()
+        mod = self._import_fresh()
         try:
             with patch("subprocess.run") as mock_run:
                 mock_run.return_value = MagicMock(stdout="... h264_amf ...")
                 result = mod.get_best_encoder()
                 assert result[0] == "h264_amf"
+                assert result[1] == "balanced"
         finally:
             mod.CACHED_ENCODER = None
-            self._cleanup_mocks(mocks)
 
     def test_intel_qsv_detected(self):
-        mod, mocks = self._import_fresh()
+        mod = self._import_fresh()
         try:
             with patch("subprocess.run") as mock_run:
                 mock_run.return_value = MagicMock(stdout="... h264_qsv ...")
                 result = mod.get_best_encoder()
                 assert result[0] == "h264_qsv"
+                assert result[1] == "faster"
         finally:
             mod.CACHED_ENCODER = None
-            self._cleanup_mocks(mocks)
 
     def test_mac_videotoolbox_detected(self):
-        mod, mocks = self._import_fresh()
+        mod = self._import_fresh()
         try:
             with patch("subprocess.run") as mock_run:
                 mock_run.return_value = MagicMock(stdout="... h264_videotoolbox ...")
@@ -563,33 +550,30 @@ class TestGetBestEncoder:
                 assert result[0] == "h264_videotoolbox"
         finally:
             mod.CACHED_ENCODER = None
-            self._cleanup_mocks(mocks)
 
     def test_cpu_fallback(self):
-        mod, mocks = self._import_fresh()
+        mod = self._import_fresh()
         try:
             with patch("subprocess.run") as mock_run:
                 mock_run.return_value = MagicMock(stdout="... libx264 ...")
                 result = mod.get_best_encoder()
                 assert result[0] == "libx264"
-                assert result[1] == "ultrafast"
+                assert result[1] == "fast"
         finally:
             mod.CACHED_ENCODER = None
-            self._cleanup_mocks(mocks)
 
     def test_ffmpeg_not_found(self):
-        mod, mocks = self._import_fresh()
+        mod = self._import_fresh()
         try:
             with patch("subprocess.run", side_effect=FileNotFoundError("ffmpeg not found")):
                 result = mod.get_best_encoder()
                 assert result[0] == "libx264"  # Fallback CPU
         finally:
             mod.CACHED_ENCODER = None
-            self._cleanup_mocks(mocks)
 
     def test_encoder_cached(self):
         """Apres le premier appel, le cache est utilise."""
-        mod, mocks = self._import_fresh()
+        mod = self._import_fresh()
         try:
             with patch("subprocess.run") as mock_run:
                 mock_run.return_value = MagicMock(stdout="... h264_nvenc ...")
@@ -600,7 +584,118 @@ class TestGetBestEncoder:
                 mock_run.assert_called_once()
         finally:
             mod.CACHED_ENCODER = None
-            self._cleanup_mocks(mocks)
+
+
+# ===========================================================================
+# 6b. build_quality_params + create_ffmpeg_pipe
+# ===========================================================================
+class TestBuildQualityParams:
+    """Tests pour build_quality_params() — flags qualite par encodeur."""
+
+    def test_nvenc_params(self):
+        from scripts.ffmpeg_utils import build_quality_params
+        params = build_quality_params("h264_nvenc")
+        assert "-rc:v" in params
+        assert "-cq" in params
+        assert "19" in params
+        assert "-bufsize" in params
+
+    def test_amf_params(self):
+        from scripts.ffmpeg_utils import build_quality_params
+        params = build_quality_params("h264_amf")
+        assert "-rc" in params
+        assert "vbr_peak" in params
+        assert "-qp_i" in params
+
+    def test_qsv_params(self):
+        from scripts.ffmpeg_utils import build_quality_params
+        params = build_quality_params("h264_qsv")
+        assert "-global_quality" in params
+
+    def test_videotoolbox_params(self):
+        from scripts.ffmpeg_utils import build_quality_params
+        params = build_quality_params("h264_videotoolbox")
+        assert "-q:v" in params
+        assert "65" in params
+
+    def test_cpu_params(self):
+        from scripts.ffmpeg_utils import build_quality_params
+        params = build_quality_params("libx264")
+        assert "-crf" in params
+        assert "18" in params
+
+    def test_unknown_encoder_uses_cpu_defaults(self):
+        from scripts.ffmpeg_utils import build_quality_params
+        params = build_quality_params("some_unknown_encoder")
+        assert "-crf" in params
+
+
+class TestBuildPresetFlags:
+    """Tests pour _build_preset_flags() — flags preset adaptes par encodeur."""
+
+    def test_nvenc_uses_preset(self):
+        from scripts.ffmpeg_utils import _build_preset_flags
+        flags = _build_preset_flags("h264_nvenc", "p1")
+        assert flags == ["-preset", "p1"]
+
+    def test_amf_uses_quality(self):
+        from scripts.ffmpeg_utils import _build_preset_flags
+        flags = _build_preset_flags("h264_amf", "balanced")
+        assert flags == ["-quality", "balanced"]
+
+    def test_videotoolbox_empty(self):
+        from scripts.ffmpeg_utils import _build_preset_flags
+        flags = _build_preset_flags("h264_videotoolbox", "default")
+        assert flags == []
+
+    def test_qsv_uses_preset(self):
+        from scripts.ffmpeg_utils import _build_preset_flags
+        flags = _build_preset_flags("h264_qsv", "faster")
+        assert flags == ["-preset", "faster"]
+
+    def test_libx264_uses_preset(self):
+        from scripts.ffmpeg_utils import _build_preset_flags
+        flags = _build_preset_flags("libx264", "fast")
+        assert flags == ["-preset", "fast"]
+
+
+class TestCreateFfmpegPipe:
+    """Tests pour create_ffmpeg_pipe() — verifie la commande FFmpeg generee."""
+
+    def test_pipe_creates_popen(self):
+        """create_ffmpeg_pipe doit appeler subprocess.Popen avec les bons args."""
+        import scripts.ffmpeg_utils as mod
+        old_cache = mod.CACHED_ENCODER
+        mod.CACHED_ENCODER = ("libx264", "fast")
+        try:
+            with patch("scripts.ffmpeg_utils.subprocess.Popen") as mock_popen:
+                mock_popen.return_value = MagicMock()
+                proc = mod.create_ffmpeg_pipe("/tmp/out.mp4", 30.0)
+                mock_popen.assert_called_once()
+                cmd = mock_popen.call_args[0][0]
+                assert "ffmpeg" in cmd[0]
+                assert "-c:v" in cmd
+                idx = cmd.index("-c:v")
+                assert cmd[idx + 1] == "libx264"
+                assert "-crf" in cmd
+                assert "1080x1920" in cmd[cmd.index("-s") + 1]
+        finally:
+            mod.CACHED_ENCODER = old_cache
+
+    def test_pipe_custom_dimensions(self):
+        """create_ffmpeg_pipe respecte les dimensions personnalisees."""
+        import scripts.ffmpeg_utils as mod
+        old_cache = mod.CACHED_ENCODER
+        mod.CACHED_ENCODER = ("h264_nvenc", "p1")
+        try:
+            with patch("scripts.ffmpeg_utils.subprocess.Popen") as mock_popen:
+                mock_popen.return_value = MagicMock()
+                mod.create_ffmpeg_pipe("/tmp/out.mp4", 25.0, width=720, height=1280)
+                cmd = mock_popen.call_args[0][0]
+                assert "720x1280" in cmd[cmd.index("-s") + 1]
+                assert "-rc:v" in cmd  # nvenc quality params
+        finally:
+            mod.CACHED_ENCODER = old_cache
 
 
 # ===========================================================================

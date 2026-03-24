@@ -25,7 +25,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 # Moved to scripts.ffmpeg_utils.
-from scripts.ffmpeg_utils import get_video_duration
+from scripts.ffmpeg_utils import get_video_duration, get_best_encoder, build_quality_params, _build_preset_flags
 
 
 # ---------------------------------------------------------------------------
@@ -54,23 +54,29 @@ def add_progress_bar(
         return False
 
     duration = get_video_duration(input_path)
+    logger.info("Progress bar: duration=%.2f for %s", duration, input_path)  # FIX: log diagnostique
     if duration <= 0:
-        logger.error("Cannot add progress bar: invalid duration")
+        logger.error("Cannot add progress bar: invalid duration (%.2f)", duration)
         return False
 
     y_expr = "0" if bar_position == "top" else f"ih-{bar_height}"
     drawbox = (
         f"drawbox=x=0:y={y_expr}:"
         f"w=iw*t/{duration}:h={bar_height}:"
-        f"color={bar_color}@0.8:t=fill"
+        f"color={bar_color}@0.8:thickness=fill"  # FIX: 'thickness' au lieu de 't' pour eviter ambiguite avec variable temps
     )
 
+    encoder_name, encoder_preset = get_best_encoder()
     cmd = [
         "ffmpeg", "-y", "-i", input_path,
         "-vf", drawbox,
+        "-c:v", encoder_name, *_build_preset_flags(encoder_name, encoder_preset),
+        *build_quality_params(encoder_name),
+        "-pix_fmt", "yuv420p",
         "-c:a", "copy",
         output_path,
     ]
+    logger.debug("Progress bar cmd: %s", " ".join(cmd))  # FIX: log commande avant execution
     try:
         run_cmd(cmd, text=True)
         logger.info("Progress bar added → %s", output_path)
@@ -246,10 +252,14 @@ def add_emoji_overlay(
         filters[-1] = last.replace(last_tag, "")
 
         filter_complex = ";".join(filters)
+        encoder_name, encoder_preset = get_best_encoder()
         cmd = [
             "ffmpeg", "-y",
             *inputs,
             "-filter_complex", filter_complex,
+            "-c:v", encoder_name, *_build_preset_flags(encoder_name, encoder_preset),
+            *build_quality_params(encoder_name),
+            "-pix_fmt", "yuv420p",
             "-c:a", "copy",
             output_path,
         ]

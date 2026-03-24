@@ -247,8 +247,15 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                       face_conf_thresh_input = gr.Slider(label=i18n("Minimum Confidence (0.0 - 1.0)"), minimum=0.0, maximum=1.0, value=0.40, step=0.05, info=i18n("Ignore detections with low confidence."))
                       face_dead_zone_input = gr.Slider(label=i18n("Dead Zone (Stabilization)"), minimum=0, maximum=200, value=150, step=5, info=i18n("Movement pixels to ignore."))
                  zoom_out_factor_input = gr.Slider(label=i18n("Zoom Out Factor (2-face mode)"), minimum=1.0, maximum=4.0, value=2.2, step=0.1, info=i18n("Higher = more zoom out when 2 faces detected. Falls back to center-crop if crop quality < 45%."))
+                 # NEW: 1-face visual enhancement sliders
+                 with gr.Row():
+                     vertical_offset_input = gr.Slider(label=i18n("Vertical Offset (Rule of Thirds)"), minimum=-0.15, maximum=0.15, value=0.0, step=0.01, info=i18n("Negative = face higher, positive = face lower. -0.08 recommended."))
+                     single_face_zoom_input = gr.Slider(label=i18n("Single Face Zoom Out"), minimum=0.8, maximum=2.0, value=1.0, step=0.1, info=i18n("Higher = more body visible. 1.0 = default."))
+                 with gr.Row():
+                     ema_alpha_input = gr.Slider(label=i18n("Tracking Smoothness"), minimum=0.05, maximum=0.40, value=0.18, step=0.01, info=i18n("Lower = smoother but slower, Higher = responsive but jittery."))
+                     detection_resolution_input = gr.Slider(label=i18n("Detection Resolution"), minimum=360, maximum=720, value=480, step=40, info=i18n("Higher = better detection but more GPU. 480 default."))
 
-                 face_preset_input.change(apply_face_preset, inputs=face_preset_input, outputs=[face_filter_thresh_input, face_two_thresh_input, face_conf_thresh_input, face_dead_zone_input])
+                 face_preset_input.change(apply_face_preset, inputs=face_preset_input, outputs=[face_filter_thresh_input, face_two_thresh_input, face_conf_thresh_input, face_dead_zone_input, vertical_offset_input, single_face_zoom_input, ema_alpha_input, detection_resolution_input])  # NEW: 8 outputs
 
                  with gr.Accordion(i18n("Experimental: Active Speaker & Motion"), open=False):
                         experimental_preset_input = gr.Dropdown(choices=[(i18n(k), k) for k in EXPERIMENTAL_PRESETS.keys()], label=i18n("Configuration Presets"), value="Default (Off)", interactive=True)
@@ -629,7 +636,9 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  input_source, project_selector, url_input, video_upload, segments_input, viral_input, themes_input, min_dur_input, max_dur_input,
                  model_input, ai_backend_input, api_key_input, ai_model_input, chunk_size_input,
                  workflow_input, face_model_input, face_mode_input, face_detect_interval_input, no_face_mode_input,
-                 face_filter_thresh_input, face_two_thresh_input, face_conf_thresh_input, face_dead_zone_input, zoom_out_factor_input, focus_active_speaker_input,
+                 face_filter_thresh_input, face_two_thresh_input, face_conf_thresh_input, face_dead_zone_input, zoom_out_factor_input,
+                 vertical_offset_input, single_face_zoom_input, ema_alpha_input, detection_resolution_input,  # NEW: 1-face visual params
+                 focus_active_speaker_input,
                  active_speaker_mar_input, active_speaker_score_diff_input, include_motion_input, active_speaker_motion_threshold_input, active_speaker_motion_sensitivity_input, active_speaker_decay_input,
                  content_type_input, enable_scoring_input, min_score_input, enable_validation_input,
                  use_custom_subs,
@@ -671,6 +680,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  model_input, ai_backend_input, api_key_input, ai_model_input, chunk_size_input,
                  workflow_input, face_model_input, face_mode_input, face_detect_interval_input, no_face_mode_input,
                  face_filter_thresh_input, face_two_thresh_input, face_conf_thresh_input, face_dead_zone_input, zoom_out_factor_input,
+                 vertical_offset_input, single_face_zoom_input, ema_alpha_input, detection_resolution_input,  # NEW: 1-face visual params
                  focus_active_speaker_input,
                  active_speaker_mar_input, active_speaker_score_diff_input, include_motion_input,
                  active_speaker_motion_threshold_input, active_speaker_motion_sensitivity_input, active_speaker_decay_input,

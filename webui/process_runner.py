@@ -153,7 +153,9 @@ def kill_process():
 
 
 def run_viral_cutter(input_source, project_name, url, video_file, segments, viral, themes, min_duration, max_duration, model, ai_backend, api_key, ai_model_name, chunk_size, workflow, face_model, face_mode, face_detect_interval, no_face_mode,
-                     face_filter_thresh, face_two_thresh, face_conf_thresh, face_dead_zone, zoom_out_factor, focus_active_speaker, active_speaker_mar, active_speaker_score_diff, include_motion, active_speaker_motion_threshold, active_speaker_motion_sensitivity, active_speaker_decay,
+                     face_filter_thresh, face_two_thresh, face_conf_thresh, face_dead_zone, zoom_out_factor,
+                     vertical_offset, single_face_zoom, ema_alpha, detection_resolution,  # NEW: 1-face visual params
+                     focus_active_speaker, active_speaker_mar, active_speaker_score_diff, include_motion, active_speaker_motion_threshold, active_speaker_motion_sensitivity, active_speaker_decay,
                      content_type, enable_scoring, min_score, enable_validation,
                      use_custom_subs, font_name, font_size, font_color, highlight_color, outline_color, outline_thickness, shadow_color, shadow_size, is_bold, is_italic, is_uppercase, vertical_pos, alignment,
                      h_size, w_block, gap, mode, under, strike, border_s, remove_punc, video_quality, use_youtube_subs, translate_target,
@@ -257,6 +259,15 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
         args_dict["face_dead_zone"] = str(int(face_dead_zone))
     if zoom_out_factor is not None:
         args_dict["zoom_out_factor"] = float(zoom_out_factor)
+    # NEW: 1-face visual params
+    if vertical_offset is not None:
+        args_dict["vertical_offset"] = float(vertical_offset)
+    if single_face_zoom is not None:
+        args_dict["single_face_zoom"] = float(single_face_zoom)
+    if ema_alpha is not None:
+        args_dict["ema_alpha"] = float(ema_alpha)
+    if detection_resolution is not None:
+        args_dict["detection_resolution"] = int(detection_resolution)
 
     # Active speaker
     if focus_active_speaker:
