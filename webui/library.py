@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html as html_mod
 import logging
 import os
 import json
@@ -60,7 +61,7 @@ def generate_project_gallery(project_path_name: str | None, is_full_path: bool =
         return f'<div style="padding: 20px; text-align: center;">{i18n("Invalid project path.")}</div>'
 
     if not os.path.exists(project_folder_path):
-        return f'<div style="padding: 20px; text-align: center;">{i18n("Project path not found: {}").format(project_folder_path)}</div>'
+        return f'<div style="padding: 20px; text-align: center;">{html_mod.escape(i18n("Project path not found: {}").format(project_folder_path))}</div>'
 
     try:
         # Load JSON
@@ -104,14 +105,14 @@ def generate_project_gallery(project_path_name: str | None, is_full_path: bool =
                  if name not in seen_names:
                      seen_names.add(name)
                      deduped.append(f)
-             segments_list = [{"title": os.path.basename(f), "score": "N/A", "description": "No metadata found.", "filepath": f} for f in deduped]
+             segments_list = [{"title": html_mod.escape(os.path.basename(f)), "score": "N/A", "description": "No metadata found.", "filepath": f} for f in deduped]
 
         html_cards = ""
         
         for i, seg in enumerate(segments_list):
-            title = seg.get("title", f"{i18n('Segment')} {i+1}")
-            score = seg.get("score", "N/A")
-            description = seg.get("description", i18n("No description available."))
+            title = html_mod.escape(str(seg.get("title", f"{i18n('Segment')} {i+1}")))
+            score = html_mod.escape(str(seg.get("score", "N/A")))
+            description = html_mod.escape(str(seg.get("description", i18n("No description available."))))
             tiktok_caption = seg.get("tiktok_caption", "")
             
             video_path = seg.get("filepath", None)
@@ -217,7 +218,7 @@ def generate_project_gallery(project_path_name: str | None, is_full_path: bool =
                             Your browser does not support the video tag.
                         </video>
                         """
-                         download_link = f'<a href="{video_src}" target="_blank" download="{os.path.basename(video_path)}" style="color: #aaa; display: flex; align-items: center; justify-content: center; padding: 5px; border-radius: 50%; transition: color 0.2s;" title="Download" onmouseover="this.style.color=\'#fff\'" onmouseout="this.style.color=\'#aaa\'"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></a>'
+                         download_link = f'<a href="{video_src}" target="_blank" download="{html_mod.escape(os.path.basename(video_path))}" style="color: #aaa; display: flex; align-items: center; justify-content: center; padding: 5px; border-radius: 50%; transition: color 0.2s;" title="Download" onmouseover="this.style.color=\'#fff\'" onmouseout="this.style.color=\'#aaa\'"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></a>'
 
                     else:
                         # Use Relative Path through /virals mount
@@ -244,7 +245,7 @@ def generate_project_gallery(project_path_name: str | None, is_full_path: bool =
                             """
                             
                             
-                            download_link = f'<a href="{video_src}" download="{os.path.basename(video_path)}" style="color: #aaa; display: flex; align-items: center; justify-content: center; padding: 5px; border-radius: 50%; transition: color 0.2s;" title="Download" onmouseover="this.style.color=\'#fff\'" onmouseout="this.style.color=\'#aaa\'"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></a>'
+                            download_link = f'<a href="{video_src}" download="{html_mod.escape(os.path.basename(video_path))}" style="color: #aaa; display: flex; align-items: center; justify-content: center; padding: 5px; border-radius: 50%; transition: color 0.2s;" title="Download" onmouseover="this.style.color=\'#fff\'" onmouseout="this.style.color=\'#aaa\'"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></a>'
                             
                             # Export XML Link
                             # project_path_name might be full path or folder name
@@ -268,7 +269,7 @@ def generate_project_gallery(project_path_name: str | None, is_full_path: bool =
                         else:
                             video_tag = f'<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #222; color: #666;"><span>⚠️</span><br>{i18n("External Video")}</div>'
                 except Exception as e:
-                    video_tag = f'<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #222; color: #666;"><span>⚠️</span><br>{i18n("Error: {}").format(str(e))}</div>'
+                    video_tag = f'<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #222; color: #666;"><span>⚠️</span><br>{html_mod.escape(i18n("Error: {}").format(str(e)))}</div>'
 
             else:
                 video_tag = f'<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #222; color: #666;"><span>⚠️</span><br>{i18n("Not Found")}</div>'
@@ -285,9 +286,9 @@ def generate_project_gallery(project_path_name: str | None, is_full_path: bool =
 
             # TikTok caption block (vide si pas de caption)
             if tiktok_caption:
-                caption_safe = tiktok_caption.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;").replace("'", "&#39;")
-                caption_js = tiktok_caption.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n")
-                caption_html = f'<div style="margin-top:8px;padding:8px 10px;background:#1a1a1a;border-radius:8px;border:1px solid #2a2a2a;"><p style="margin:0 0 6px 0;color:#ccc;font-size:12px;line-height:1.5;font-family:sans-serif;">{caption_safe}</p><button onclick="navigator.clipboard.writeText(\'{caption_js}\').then(()=>{{this.textContent=\'Copied!\';setTimeout(()=>this.textContent=\'Copy caption\',1500)}})" style="font-size:11px;padding:3px 10px;background:#2a2a2a;color:#ccc;border:1px solid #444;border-radius:5px;cursor:pointer;">Copy caption</button></div>'
+                caption_safe = html_mod.escape(str(tiktok_caption))
+                caption_js = json.dumps(str(tiktok_caption))
+                caption_html = f'<div style="margin-top:8px;padding:8px 10px;background:#1a1a1a;border-radius:8px;border:1px solid #2a2a2a;"><p style="margin:0 0 6px 0;color:#ccc;font-size:12px;line-height:1.5;font-family:sans-serif;">{caption_safe}</p><button onclick="navigator.clipboard.writeText({html_mod.escape(caption_js)}).then(()=>{{this.textContent=\'Copied!\';setTimeout(()=>this.textContent=\'Copy caption\',1500)}})" style="font-size:11px;padding:3px 10px;background:#2a2a2a;color:#ccc;border:1px solid #444;border-radius:5px;cursor:pointer;">Copy caption</button></div>'
             else:
                 caption_html = ""
 
@@ -353,7 +354,7 @@ def generate_project_gallery(project_path_name: str | None, is_full_path: bool =
         """
 
     except Exception as e:
-        return i18n("Error loading gallery: {}").format(e)
+        return html_mod.escape(i18n("Error loading gallery: {}").format(str(e)))
 
 
 def generate_preview_clip(project_folder: str, segment_index: int, duration: float = 5.0) -> str:

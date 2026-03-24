@@ -246,7 +246,7 @@ def calculate_mouth_ratio(landmarks: np.ndarray) -> float:
     
     return h / w
 
-def generate_short_mediapipe(input_file: str, output_file: str, index: int, face_mode: str, project_folder: str, final_folder: str, face_detection: object, face_mesh: object, pose: object, detection_period: float | None = None, no_face_mode: str = "padding") -> None:
+def generate_short_mediapipe(input_file: str, output_file: str, index: int, face_mode: str, project_folder: str, final_folder: str, face_detection: object, face_mesh: object, pose: object, detection_period: float | None = None, no_face_mode: str = "padding", zoom_out_factor: float = 2.2) -> None:
     try:
         cap = cv2.VideoCapture(input_file)
         if not cap.isOpened():
@@ -1421,7 +1421,7 @@ def edit(project_folder: str = "tmp", face_model: str = "insightface", face_mode
             # 2. Try MediaPipe if InsightFace failed or not available
             if not success and mediapipe_working and _mp_face_det is not None:
                 try:
-                    generate_short_mediapipe(input_file, output_file, index, face_mode, project_folder, final_folder, _mp_face_det, _mp_face_msh, _mp_pose_sess, detection_period=detection_period, no_face_mode=no_face_mode)
+                    generate_short_mediapipe(input_file, output_file, index, face_mode, project_folder, final_folder, _mp_face_det, _mp_face_msh, _mp_pose_sess, detection_period=detection_period, no_face_mode=no_face_mode, zoom_out_factor=zoom_out_factor)
                     # We don't easily know detected mode here without return, assuming '1' or '2' based on last frame?
                     # Ideally function should return as well.
                     detected_mode = "1" # Placeholder, user didn't complain about stats.

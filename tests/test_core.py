@@ -784,3 +784,98 @@ class TestPathTraversalValidation:
         os.unlink(link_path)
         os.rmdir(target)
         os.rmdir(virals_dir)
+
+
+# ===========================================================================
+# 8. validate_url — SSRF protection for yt-dlp downloads
+# ===========================================================================
+from scripts.download_video import validate_url
+
+
+class TestValidateUrl:
+    """Tests pour validate_url() — protection SSRF avant yt-dlp."""
+
+    # -- URLs valides (ne doivent PAS lever d'exception) --------------------
+    def test_youtube_url(self):
+        validate_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+
+    def test_youtu_be_short(self):
+        validate_url("https://youtu.be/dQw4w9WgXcQ")
+
+    def test_tiktok_url(self):
+        validate_url("https://www.tiktok.com/@user/video/123456")
+
+    def test_vimeo_url(self):
+        validate_url("https://vimeo.com/123456")
+
+    def test_http_allowed(self):
+        validate_url("http://www.dailymotion.com/video/x123")
+
+    def test_instagram_url(self):
+        validate_url("https://www.instagram.com/reel/ABC123/")
+
+    def test_twitter_url(self):
+        validate_url("https://twitter.com/user/status/123456")
+
+    def test_x_dot_com_url(self):
+        validate_url("https://x.com/user/status/123456")
+
+    def test_reddit_url(self):
+        validate_url("https://www.reddit.com/r/sub/comments/abc/title/")
+
+    def test_twitch_url(self):
+        validate_url("https://www.twitch.tv/videos/123456")
+
+    def test_facebook_url(self):
+        validate_url("https://www.facebook.com/watch/?v=123456")
+
+    # -- Schemes interdits --------------------------------------------------
+    def test_file_scheme_rejected(self):
+        with pytest.raises(ValueError, match="scheme"):
+            validate_url("file:///etc/passwd")
+
+    def test_ftp_scheme_rejected(self):
+        with pytest.raises(ValueError, match="scheme"):
+            validate_url("ftp://ftp.example.com/file.mp4")
+
+    def test_empty_scheme_rejected(self):
+        with pytest.raises(ValueError, match="scheme"):
+            validate_url("/etc/passwd")
+
+    def test_no_scheme_bare_path(self):
+        with pytest.raises(ValueError, match="scheme"):
+            validate_url("C:\\Windows\\System32\\cmd.exe")
+
+    # -- Hostname manquant ou interdit --------------------------------------
+    def test_no_hostname_rejected(self):
+        with pytest.raises(ValueError, match="hostname"):
+            validate_url("https://")
+
+    def test_localhost_rejected(self):
+        with pytest.raises(ValueError, match="not allowed"):
+            validate_url("https://localhost/admin")
+
+    def test_localhost_localdomain_rejected(self):
+        with pytest.raises(ValueError, match="not allowed"):
+            validate_url("http://localhost.localdomain/")
+
+    # -- IP privees / reservees ---------------------------------------------
+    def test_loopback_ip_rejected(self):
+        with pytest.raises(ValueError, match="private"):
+            validate_url("http://127.0.0.1/admin")
+
+    def test_private_class_a_rejected(self):
+        with pytest.raises(ValueError, match="private"):
+            validate_url("http://10.0.0.1/internal")
+
+    def test_private_class_b_rejected(self):
+        with pytest.raises(ValueError, match="private"):
+            validate_url("http://172.16.0.1/internal")
+
+    def test_private_class_c_rejected(self):
+        with pytest.raises(ValueError, match="private"):
+            validate_url("http://192.168.1.1/router")
+
+    def test_ipv6_loopback_rejected(self):
+        with pytest.raises(ValueError, match="private"):
+            validate_url("http://[::1]/admin")

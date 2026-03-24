@@ -9,6 +9,7 @@ import whisperx
 import gc
 import re
 import glob
+from contextlib import contextmanager
 from i18n.i18n import I18nAuto
 
 i18n = I18nAuto()
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 def apply_safe_globals_hack() -> None:
     """
     Workaround for 'Weights only load failed' error in newer PyTorch versions.
-    We first try to add safe globals. If that's not enough/fails, we monkeypatch torch.load.
+    Adds omegaconf classes to torch safe globals.
     """
     try:
         import omegaconf
@@ -31,16 +32,6 @@ def apply_safe_globals_hack() -> None:
             ])
             logger.info("Aplicado patch de segurança para globals do Omegaconf.")
             
-        # Monkeypatch agressivo para garantir compatibilidade com Pyannote/WhisperX antigos
-        original_load = torch.load
-        
-        def safe_load(*args, **kwargs):
-            kwargs['weights_only'] = False
-            return original_load(*args, **kwargs)
-            
-        torch.load = safe_load
-        logger.info("Aplicado monkeypatch em torch.load para forçar weights_only=False.")
-        
     except ImportError:
         pass
     except Exception as e:
@@ -48,11 +39,25 @@ def apply_safe_globals_hack() -> None:
 
     try:
         import torchaudio
+
         if not hasattr(torchaudio, 'list_audio_backends'):
             torchaudio.list_audio_backends = lambda: []
             logger.info("Aplicado monkeypatch em torchaudio.list_audio_backends para PyTorch >= 2.4.")
     except Exception as e:
         pass
+
+@contextmanager
+def _unsafe_torch_load():
+    """Temporarily patch torch.load with weights_only=False for WhisperX compatibility."""
+    original_load = torch.load
+    def _patched_load(*args, **kwargs):
+        kwargs['weights_only'] = False
+        return original_load(*args, **kwargs)
+    torch.load = _patched_load
+    try:
+        yield
+    finally:
+        torch.load = original_load
 
 def parse_srt(srt_path: str) -> list[dict] | None:
     """
@@ -265,12 +270,13 @@ def transcribe(input_file: str, model_name: str = 'large-v3', project_folder: st
             # 3. Transcrever (Caminho Normal)
             logger.info("Nenhuma legenda válida encontrada. Realizando transcrição completa (WhisperX)...")
             logger.info(f"Carregando modelo {model_name}...")
-            model = whisperx.load_model(
-                model_name, 
-                device, 
-                compute_type=compute_type,
-                asr_options={"hotwords": None}
-            )
+            with _unsafe_torch_load():
+                model = whisperx.load_model(
+                    model_name,
+                    device,
+                    compute_type=compute_type,
+                    asr_options={"hotwords": None}
+                )
 
             with torch.no_grad():
                 result = model.transcribe(
@@ -296,7 +302,8 @@ def transcribe(input_file: str, model_name: str = 'large-v3', project_folder: st
         # Não podemos forçar facilmente o modelo exato sem hackear o whisperx, mas o padrão é bom.
         
         try:
-            model_a, metadata = whisperx.load_align_model(language_code=detected_language, device=device)
+            with _unsafe_torch_load():
+                model_a, metadata = whisperx.load_align_model(language_code=detected_language, device=device)
             
             aligned_result = whisperx.align(start_segments, model_a, metadata, audio, device, return_char_alignments=False)
             

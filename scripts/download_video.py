@@ -1,14 +1,66 @@
 from __future__ import annotations
 
+import ipaddress
 import logging
 import os
 import re
+import socket
+from urllib.parse import urlparse
+
 import yt_dlp
 import sys
 from i18n.i18n import I18nAuto
 i18n = I18nAuto()
 
 logger = logging.getLogger(__name__)
+
+ALLOWED_SCHEMES = {"http", "https"}
+
+BLOCKED_DOMAINS = {"localhost", "localhost.localdomain"}
+
+
+def _is_private_hostname(hostname: str) -> bool:
+    """Return True if *hostname* resolves to a private/reserved IP address."""
+    try:
+        addr = ipaddress.ip_address(hostname)
+        return addr.is_private or addr.is_reserved or addr.is_loopback
+    except ValueError:
+        pass
+    try:
+        resolved = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        for _family, _type, _proto, _canonname, sockaddr in resolved:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if ip.is_private or ip.is_reserved or ip.is_loopback:
+                return True
+    except (socket.gaierror, OSError):
+        pass
+    return False
+
+
+def validate_url(url: str) -> None:
+    """Validate *url* before passing it to yt-dlp.
+
+    Raises ``ValueError`` if the URL is unsafe (wrong scheme, private IP,
+    file path, etc.).
+    """
+    parsed = urlparse(url)
+
+    if parsed.scheme not in ALLOWED_SCHEMES:
+        raise ValueError(
+            f"URL scheme '{parsed.scheme}' is not allowed. Only http/https URLs are accepted."
+        )
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("URL has no hostname.")
+
+    if hostname in BLOCKED_DOMAINS:
+        raise ValueError(f"URL hostname '{hostname}' is not allowed.")
+
+    if _is_private_hostname(hostname):
+        raise ValueError(
+            f"URL resolves to a private/reserved IP address and is not allowed."
+        )
 
 def sanitize_filename(name: str) -> str:
     """Remove caracteres inválidos e emojis para evitar erro de encoding no Windows."""
@@ -37,7 +89,8 @@ def progress_hook(d: dict) -> None:
         logger.info(f"[download] Download concluído: {d['filename']}")
 
 def download(url: str, base_root: str = "VIRALS", download_subs: bool = True, quality: str = "best") -> tuple[str, str]:
-    # 1. Extrair informações do vídeo para pegar o título
+    validate_url(url)
+
     # 1. Extrair informações do vídeo para pegar o título
     logger.info(i18n("Extracting video information..."))
     title = None

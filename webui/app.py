@@ -649,6 +649,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  # New Inputs
                  highlight_size_input, words_per_block_input, gap_limit_input, mode_input,
                  underline_input, strikeout_input, border_style_input, remove_punc_input,
+                 animation_input,
                  video_quality_input, use_youtube_subs_input, translate_input,
                  # Music
                  add_music_input, music_dir_input, music_file_input, music_volume_input,
@@ -677,7 +678,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
              # Saveable inputs (same order as SETTINGS_KEYS)
              _saveable_inputs = [
                  segments_input, viral_input, themes_input, min_dur_input, max_dur_input,
-                 model_input, ai_backend_input, api_key_input, ai_model_input, chunk_size_input,
+                 model_input, ai_backend_input, ai_model_input, chunk_size_input,
                  workflow_input, face_model_input, face_mode_input, face_detect_interval_input, no_face_mode_input,
                  face_filter_thresh_input, face_two_thresh_input, face_conf_thresh_input, face_dead_zone_input, zoom_out_factor_input,
                  vertical_offset_input, single_face_zoom_input, ema_alpha_input, detection_resolution_input,  # NEW: 1-face visual params
@@ -1039,6 +1040,10 @@ if __name__ == "__main__":
 
             @fastapi_app.get("/export_xml_api")
             def export_xml_api(project: str, segment: int, background_tasks: BackgroundTasks, format: str = "premiere"):
+                VALID_EXPORT_FORMATS = {"premiere", "resolve", "final-cut-pro"}
+                if format not in VALID_EXPORT_FORMATS:
+                    from fastapi.responses import JSONResponse
+                    return JSONResponse(status_code=400, content={"error": f"Invalid format. Must be one of: {', '.join(sorted(VALID_EXPORT_FORMATS))}"})
                 try:
                     project_path = os.path.join(VIRALS_DIR, project)
                     real_path = os.path.realpath(project_path)

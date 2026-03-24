@@ -22,7 +22,7 @@ SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settin
 
 SETTINGS_KEYS = [
     "segments", "viral", "themes", "min_duration", "max_duration",
-    "model", "ai_backend", "api_key", "ai_model_name", "chunk_size",
+    "model", "ai_backend", "ai_model_name", "chunk_size",
     "workflow", "face_model", "face_mode", "face_detect_interval", "no_face_mode",
     "face_filter_thresh", "face_two_thresh", "face_conf_thresh", "face_dead_zone", "zoom_out_factor",
     "vertical_offset", "single_face_zoom", "ema_alpha", "detection_resolution",  # NEW: 1-face visual params
