@@ -21,6 +21,7 @@ from scripts import (
     translate_json,
 )
 from scripts.models import Segment
+from scripts.pipeline.config import ProcessingConfig
 from scripts.pipeline.context import PipelineContext
 from scripts.pipeline.errors import PipelineError
 
@@ -88,7 +89,7 @@ def get_subtitle_config(config_path=None) -> dict:
 
 def stage_download(ctx: PipelineContext) -> None:
     """Download video or reuse existing input."""
-    args = ctx.args
+    cfg = ctx.cfg
     logger.debug(f"Checking input_video state. input_video={ctx.input_video}")
 
     if not ctx.input_video:
@@ -96,8 +97,8 @@ def stage_download(ctx: PipelineContext) -> None:
             raise PipelineError(i18n("Error: No URL provided and no existing video selected."))
 
         logger.info(i18n("Starting download..."))
-        download_subs = not args.skip_youtube_subs
-        download_result = download_video.download(ctx.url, download_subs=download_subs, quality=args.video_quality)
+        download_subs = not cfg.input.skip_youtube_subs
+        download_result = download_video.download(ctx.url, download_subs=download_subs, quality=cfg.input.video_quality)
 
         if isinstance(download_result, tuple):
             ctx.input_video, ctx.project_folder = download_result
@@ -123,8 +124,9 @@ def stage_transcribe(ctx: PipelineContext) -> None:
         logger.info(i18n("Workflow 3: Skipping Transcribe."))
         return
 
-    logger.info(i18n("Transcribing with model {}...").format(ctx.args.model))
-    transcribe_video.transcribe(ctx.input_video, ctx.args.model, project_folder=ctx.project_folder)
+    cfg = ctx.cfg
+    logger.info(i18n("Transcribing with model {}...").format(cfg.model))
+    transcribe_video.transcribe(ctx.input_video, cfg.model, project_folder=ctx.project_folder)
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +135,7 @@ def stage_transcribe(ctx: PipelineContext) -> None:
 
 def stage_viral_segments(ctx: PipelineContext) -> None:
     """Create or load viral segments, align, generate captions, split parts."""
-    args = ctx.args
+    cfg = ctx.cfg
     if ctx.workflow_choice == "3":
         return
 
@@ -142,7 +144,7 @@ def stage_viral_segments(ctx: PipelineContext) -> None:
         viral_segments_file_late = os.path.join(ctx.project_folder, "viral_segments.txt")
         if os.path.exists(viral_segments_file_late):
             logger.info(i18n("Found existing viral segments file at {}").format(viral_segments_file_late))
-            if args.skip_prompts:
+            if cfg.skip_prompts:
                 logger.info(i18n("Skipping prompts enabled. Loading existing segments."))
             else:
                 logger.info(i18n("Loading existing viral segments found at {}").format(viral_segments_file_late))
@@ -154,24 +156,24 @@ def stage_viral_segments(ctx: PipelineContext) -> None:
 
         if not ctx.viral_segments:
             logger.info(i18n("Creating viral segments using {}...").format(ctx.ai_backend.upper()))
-            raw_ct = args.content_type or []
+            raw_ct = cfg.ai.content_type or []
             content_type_arg = [ct for ct in raw_ct if ct != "auto"] or None
             ctx.viral_segments = create_viral_segments.create(
                 ctx.num_segments,
                 ctx.viral_mode,
                 ctx.themes,
-                args.min_duration,
-                args.max_duration,
+                cfg.segment.min_duration,
+                cfg.segment.max_duration,
                 ai_mode=ctx.ai_backend,
                 api_key=ctx.api_key,
                 project_folder=ctx.project_folder,
-                chunk_size_arg=args.chunk_size,
-                model_name_arg=args.ai_model_name,
+                chunk_size_arg=cfg.ai.chunk_size,
+                model_name_arg=cfg.ai.ai_model_name,
                 content_type=content_type_arg,
-                enable_scoring=args.enable_scoring,
-                min_score=args.min_score,
-                enable_validation=args.enable_validation,
-                enable_parts=args.enable_parts
+                enable_scoring=cfg.ai.enable_scoring,
+                min_score=cfg.ai.min_score,
+                enable_validation=cfg.ai.enable_validation,
+                enable_parts=cfg.segment.enable_parts
             )
 
         if not ctx.viral_segments or not ctx.viral_segments.get("segments"):
@@ -192,7 +194,7 @@ def stage_viral_segments(ctx: PipelineContext) -> None:
             try:
                 transcript = create_viral_segments.load_transcript(ctx.project_folder)
                 ctx.viral_segments = create_viral_segments.process_segments(
-                    segs, transcript, args.min_duration, args.max_duration, output_count=None
+                    segs, transcript, cfg.segment.min_duration, cfg.segment.max_duration, output_count=None
                 )
                 save_json.save_viral_segments(ctx.viral_segments, project_folder=ctx.project_folder)
                 ctx.viral_segments["segments"] = [
@@ -215,24 +217,24 @@ def stage_viral_segments(ctx: PipelineContext) -> None:
                 transcript_text,
                 ai_mode=ctx.ai_backend,
                 api_key=ctx.api_key,
-                model_name=args.ai_model_name,
+                model_name=cfg.ai.ai_model_name,
                 content_type=ctx.viral_segments.get("content_type")
             )
-            if args.enable_validation:
+            if cfg.ai.enable_validation:
                 logger.info(i18n("Validating TikTok captions..."))
                 ctx.viral_segments["segments"] = create_viral_segments.validate_captions(
                     ctx.viral_segments["segments"],
                     transcript_text,
                     ai_mode=ctx.ai_backend,
                     api_key=ctx.api_key,
-                    model_name=args.ai_model_name,
+                    model_name=cfg.ai.ai_model_name,
                 )
             save_json.save_viral_segments(ctx.viral_segments, project_folder=ctx.project_folder)
         except Exception as e:
             logger.warning(f"TikTok caption generation failed: {e}")
 
     # Split long segments into parts
-    if args.enable_parts and ctx.viral_segments and "segments" in ctx.viral_segments:
+    if cfg.segment.enable_parts and ctx.viral_segments and "segments" in ctx.viral_segments:
         from scripts.split_parts import split_long_segments
         logger.info(i18n("Splitting long segments into parts (AI-guided)..."))
         transcript_segments_for_split = create_viral_segments.load_transcript(ctx.project_folder)
@@ -240,12 +242,12 @@ def stage_viral_segments(ctx: PipelineContext) -> None:
             ctx.viral_segments,
             transcript_json_path=os.path.join(ctx.project_folder, "input.json"),
             transcript_segments=transcript_segments_for_split,
-            target_part_duration=args.target_part_duration,
-            min_part_duration=max(args.min_duration, 30),
-            max_normal_duration=args.max_duration,
+            target_part_duration=cfg.segment.target_part_duration,
+            min_part_duration=max(cfg.segment.min_duration, 30),
+            max_normal_duration=cfg.segment.max_duration,
             ai_mode=ctx.ai_backend,
             api_key=ctx.api_key,
-            model_name=args.ai_model_name,
+            model_name=cfg.ai.ai_model_name,
         )
         save_json.save_viral_segments(ctx.viral_segments, project_folder=ctx.project_folder)
         ctx.viral_segments["segments"] = [
@@ -261,7 +263,7 @@ def stage_viral_segments(ctx: PipelineContext) -> None:
 
 def stage_cut(ctx: PipelineContext) -> None:
     """Cut video segments and optionally remove silence / fillers / speed ramp."""
-    args = ctx.args
+    cfg = ctx.cfg
 
     if ctx.workflow_choice == "3":
         logger.info(i18n("Workflow 3 (Subtitles Only): Skipping Cut and Edit."))
@@ -272,7 +274,7 @@ def stage_cut(ctx: PipelineContext) -> None:
 
     if os.path.exists(cuts_folder) and os.listdir(cuts_folder):
         logger.info(i18n("Existing cuts found in: {}").format(cuts_folder))
-        if args.skip_prompts:
+        if cfg.skip_prompts:
             cut_again_resp = 'no'
         else:
             cut_again_resp = input(i18n("Cuts already exist. Cut again? (yes/no) [default: no]: ")).strip().lower()
@@ -288,21 +290,21 @@ def stage_cut(ctx: PipelineContext) -> None:
         ctx.viral_segments,
         project_folder=ctx.project_folder,
         skip_video=skip_cutting,
-        smart_trim=args.smart_trim,
-        trim_pad_start=args.trim_pad_start,
-        trim_pad_end=args.trim_pad_end,
-        scene_detection=args.scene_detection,
+        smart_trim=cfg.quality.smart_trim,
+        trim_pad_start=cfg.quality.trim_pad_start,
+        trim_pad_end=cfg.quality.trim_pad_end,
+        scene_detection=cfg.quality.scene_detection,
     )
 
     # Remove silence (jump cuts)
-    if args.remove_silence:
+    if cfg.audio.remove_silence:
         from scripts import remove_silence
         logger.info(i18n("Removing silences (jump cuts)..."))
         remove_silence.process_project(
             project_folder=ctx.project_folder,
-            noise_db=args.silence_threshold,
-            min_silence_duration=args.silence_min_duration,
-            max_silence_keep=args.silence_max_keep,
+            noise_db=cfg.audio.silence_threshold,
+            min_silence_duration=cfg.audio.silence_min_duration,
+            max_silence_keep=cfg.audio.silence_max_keep,
         )
 
 
@@ -351,7 +353,7 @@ def _process_speed_ramp_single(
 
 def stage_filler_speed(ctx: PipelineContext) -> None:
     """Remove filler words and apply speed ramp (parallelized per segment)."""
-    args = ctx.args
+    cfg = ctx.cfg
     if ctx.workflow_choice == "3":
         return
 
@@ -364,7 +366,7 @@ def stage_filler_speed(ctx: PipelineContext) -> None:
     max_workers = min(4, len(video_files))
 
     # Filler word removal (parallel)
-    if args.remove_fillers and video_files:
+    if cfg.post_production.remove_fillers and video_files:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
             for video_path in video_files:
@@ -379,7 +381,7 @@ def stage_filler_speed(ctx: PipelineContext) -> None:
                     logger.error(f"Filler removal failed: {e}")
 
     # Speed ramp (parallel, after fillers complete)
-    if args.speed_ramp and video_files:
+    if cfg.post_production.speed_ramp and video_files:
         segments_path = os.path.join(ctx.project_folder, "viral_segments.txt")
         all_zoom_cues: list[list] = []
         if os.path.exists(segments_path):
@@ -392,7 +394,7 @@ def stage_filler_speed(ctx: PipelineContext) -> None:
             for idx, video_path in enumerate(video_files):
                 zoom_cues = all_zoom_cues[idx] if idx < len(all_zoom_cues) else []
                 futures.append(executor.submit(
-                    _process_speed_ramp_single, video_path, args.speed_up_factor, zoom_cues,
+                    _process_speed_ramp_single, video_path, cfg.post_production.speed_up_factor, zoom_cues,
                 ))
             for future in as_completed(futures):
                 try:
@@ -406,7 +408,7 @@ def stage_filler_speed(ctx: PipelineContext) -> None:
 # ---------------------------------------------------------------------------
 
 def _analyze_single_segment(
-    video_path: str, json_path: str, args, engagement_model: str | None = None,
+    video_path: str, json_path: str, cfg: ProcessingConfig, engagement_model: str | None = None,
 ) -> dict:
     """Analyze a single segment's quality metrics (thread-safe, no shared state)."""
     from scripts.smart_trim import load_whisperx_words
@@ -415,9 +417,9 @@ def _analyze_single_segment(
 
     words = load_whisperx_words(json_path) if os.path.exists(json_path) else []
 
-    if args.validate_clips:
+    if cfg.quality.validate_clips:
         from scripts.clip_validator import validate_clip_boundaries
-        boundary = validate_clip_boundaries(video_path, noise_db=args.silence_threshold)
+        boundary = validate_clip_boundaries(video_path, noise_db=cfg.audio.silence_threshold)
         result["speech_ratio"] = boundary["speech_ratio"]
         result["starts_on_silence"] = boundary["starts_on_silence"]
         result["ends_on_silence"] = boundary["ends_on_silence"]
@@ -425,23 +427,23 @@ def _analyze_single_segment(
             logger.warning(f"  {filename}: starts on silence!")
         logger.info(f"  {filename}: speech_ratio={boundary['speech_ratio']}")
 
-    if args.hook_detection:
+    if cfg.quality.hook_detection:
         from scripts.hook_scorer import score_hook
         hook = score_hook(video_path, words)
         result["hook_score"] = hook["hook_score"]
         result["hook_audio_energy"] = hook["audio_energy"]
         logger.info(f"  {filename}: hook_score={hook['hook_score']}")
 
-    if args.blur_detection:
+    if cfg.quality.blur_detection:
         from scripts.blur_detector import detect_blur_frames
         blur = detect_blur_frames(video_path)
         result["blur_ratio"] = blur["blur_ratio"]
         result["avg_sharpness"] = blur["avg_sharpness"]
-        if blur["blur_ratio"] > args.max_blur_ratio:
+        if blur["blur_ratio"] > cfg.quality.max_blur_ratio:
             logger.warning(f"  {filename}: high blur ratio {blur['blur_ratio']:.2f}")
         logger.info(f"  {filename}: blur_ratio={blur['blur_ratio']}, sharpness={blur['avg_sharpness']}")
 
-    if args.pacing_analysis:
+    if cfg.quality.pacing_analysis:
         from scripts.pacing_analyzer import analyze_pacing
         pacing = analyze_pacing(video_path, words)
         result["pacing_score"] = pacing["pacing_score"]
@@ -449,7 +451,7 @@ def _analyze_single_segment(
         result["avg_rms_energy"] = pacing["avg_rms_energy"]
         logger.info(f"  {filename}: pacing_score={pacing['pacing_score']}, wps={pacing['words_per_sec']}")
 
-    if args.validate_clips:
+    if cfg.quality.validate_clips:
         from scripts.clip_validator import score_visual_variety, analyze_speaker_activity
         variety = score_visual_variety(video_path)
         result["visual_variety_score"] = variety["visual_variety_score"]
@@ -462,7 +464,7 @@ def _analyze_single_segment(
             logger.info(f"  {filename}: speaking_ratio={speaker['speaking_time_ratio']}")
 
     # Composite and engagement depend on prior results — compute inline
-    if args.composite_scoring:
+    if cfg.quality.composite_scoring:
         from scripts.composite_scorer import compute_composite_score
         composite = compute_composite_score(
             hook_score=result.get("hook_score", 50.0),
@@ -474,7 +476,7 @@ def _analyze_single_segment(
         result["composite_quality_score"] = composite
         logger.info(f"  {filename}: composite_score={composite}")
 
-    if args.engagement_prediction:
+    if cfg.advanced_ai.engagement_prediction:
         from scripts.engagement_predictor import predict_from_metadata
         engagement = predict_from_metadata(result, model_path=engagement_model)
         result["engagement_score"] = engagement
@@ -485,11 +487,11 @@ def _analyze_single_segment(
 
 def stage_quality(ctx: PipelineContext) -> None:
     """Validate clip quality: silence, hooks, blur, pacing, composite, engagement."""
-    args = ctx.args
+    cfg = ctx.cfg
     if ctx.workflow_choice == "3":
         return
 
-    if not any([args.validate_clips, args.hook_detection, args.blur_detection, args.pacing_analysis, args.composite_scoring]):
+    if not any([cfg.quality.validate_clips, cfg.quality.hook_detection, cfg.quality.blur_detection, cfg.quality.pacing_analysis, cfg.quality.composite_scoring]):
         return
 
     import glob as glob_mod
@@ -518,8 +520,8 @@ def stage_quality(ctx: PipelineContext) -> None:
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
             executor.submit(
-                _analyze_single_segment, video_path, json_path, args,
-                getattr(args, 'engagement_model', None),
+                _analyze_single_segment, video_path, json_path, cfg,
+                cfg.advanced_ai.engagement_model,
             ): idx
             for idx, video_path, json_path in valid_pairs
         }
@@ -546,13 +548,13 @@ def stage_quality(ctx: PipelineContext) -> None:
 
 def stage_face_edit(ctx: PipelineContext) -> None:
     """Face detection & cropping, or file renaming for Workflow 3."""
-    args = ctx.args
+    cfg = ctx.cfg
 
     if ctx.workflow_choice != "3":
         logger.info(i18n("Editing video with {} (Mode: {})...").format(ctx.face_model, ctx.face_mode))
 
         try:
-            dead_zone_val = int(args.face_dead_zone)
+            dead_zone_val = int(cfg.face.face_dead_zone)
         except (ValueError, TypeError):
             dead_zone_val = 40
 
@@ -561,25 +563,25 @@ def stage_face_edit(ctx: PipelineContext) -> None:
             face_model=ctx.face_model,
             face_mode=ctx.face_mode,
             detection_period=ctx.detection_intervals,
-            filter_threshold=args.face_filter_threshold,
-            two_face_threshold=args.face_two_threshold,
-            confidence_threshold=args.face_confidence_threshold,
+            filter_threshold=cfg.face.face_filter_threshold,
+            two_face_threshold=cfg.face.face_two_threshold,
+            confidence_threshold=cfg.face.face_confidence_threshold,
             dead_zone=dead_zone_val,
-            focus_active_speaker=args.focus_active_speaker,
-            active_speaker_mar=args.active_speaker_mar,
-            active_speaker_score_diff=args.active_speaker_score_diff,
-            include_motion=args.include_motion,
-            active_speaker_motion_deadzone=args.active_speaker_motion_threshold,
-            active_speaker_motion_sensitivity=args.active_speaker_motion_sensitivity,
-            active_speaker_decay=args.active_speaker_decay,
+            focus_active_speaker=cfg.face.focus_active_speaker,
+            active_speaker_mar=cfg.face.active_speaker_mar,
+            active_speaker_score_diff=cfg.face.active_speaker_score_diff,
+            include_motion=cfg.face.include_motion,
+            active_speaker_motion_deadzone=cfg.face.active_speaker_motion_threshold,
+            active_speaker_motion_sensitivity=cfg.face.active_speaker_motion_sensitivity,
+            active_speaker_decay=cfg.face.active_speaker_decay,
             segments_data=ctx.viral_segments.get("segments", []) if ctx.viral_segments else None,
-            no_face_mode=args.no_face_mode,
-            zoom_out_factor=args.zoom_out_factor,
+            no_face_mode=cfg.face.no_face_mode,
+            zoom_out_factor=cfg.face.zoom_out_factor,
             # NEW: 1-face visual enhancement params
-            vertical_offset=args.vertical_offset,
-            single_face_zoom=args.single_face_zoom,
-            ema_alpha=args.ema_alpha,
-            detection_resolution=args.detection_resolution,
+            vertical_offset=cfg.face.vertical_offset,
+            single_face_zoom=cfg.face.single_face_zoom,
+            ema_alpha=cfg.face.ema_alpha,
+            detection_resolution=cfg.face.detection_resolution,
         )
     else:
         logger.info(i18n("Workflow 3: Skipping Face Crop."))
@@ -626,22 +628,22 @@ def stage_face_edit(ctx: PipelineContext) -> None:
 
 def stage_subtitles(ctx: PipelineContext) -> None:
     """Process, translate, and burn subtitles; add music and distraction."""
-    args = ctx.args
+    cfg = ctx.cfg
 
     # Translation
-    if args.translate_target and args.translate_target.lower() != "none":
-        logger.info(i18n("Translating subtitles to: {}").format(args.translate_target))
+    if cfg.translate_target and cfg.translate_target.lower() != "none":
+        logger.info(i18n("Translating subtitles to: {}").format(cfg.translate_target))
         import asyncio
         try:
-            asyncio.run(translate_json.translate_project_subs(ctx.project_folder, args.translate_target))
+            asyncio.run(translate_json.translate_project_subs(ctx.project_folder, cfg.translate_target))
         except Exception as e:
             logger.error(i18n("Translation failed: {}").format(e))
 
-    ctx.sub_config = get_subtitle_config(args.subtitle_config)
+    ctx.sub_config = get_subtitle_config(cfg.subtitle.subtitle_config)
 
     # Split-screen auto-adjust
-    if getattr(args, 'add_distraction', False):
-        _ratio = getattr(args, 'distraction_ratio', 0.5)
+    if cfg.distraction.add_distraction:
+        _ratio = cfg.distraction.distraction_ratio
         ctx.sub_config['vertical_position'] = int(620 * (1 - _ratio))
 
     # Generate .ass files
@@ -657,42 +659,42 @@ def stage_subtitles(ctx: PipelineContext) -> None:
         raise e
 
     # Add music
-    if args.add_music:
+    if cfg.audio.add_music:
         logger.info(i18n("Adding background music..."))
         try:
             _segs = ctx.viral_segments.get("segments", []) if ctx.viral_segments else []
             add_music.add_music_to_project(
                 project_folder=ctx.project_folder,
-                music_dir=args.music_dir,
-                music_file=args.music_file,
-                music_volume=args.music_volume,
+                music_dir=cfg.audio.music_dir,
+                music_file=cfg.audio.music_file,
+                music_volume=cfg.audio.music_volume,
                 segments=_segs,
             )
         except Exception as e:
             logger.warning(f"Music addition failed: {e}")
 
     # Split-screen distraction
-    if args.add_distraction:
+    if cfg.distraction.add_distraction:
         logger.info("Adding split-screen distraction video...")
         try:
             from scripts.add_distraction_video import add_distraction_to_project
             from scripts.add_distraction_video import DEFAULT_DISTRACTION_DIR as _DIST_DIR
             add_distraction_to_project(
                 project_folder=ctx.project_folder,
-                distraction_dir=args.distraction_dir or _DIST_DIR,
-                distraction_file=args.distraction_file,
-                no_fetch=args.distraction_no_fetch,
-                main_crop_y=0 if getattr(args, 'face_mode', '1') == '2' else None,
-                distraction_ratio=getattr(args, 'distraction_ratio', 0.35),
+                distraction_dir=cfg.distraction.distraction_dir or _DIST_DIR,
+                distraction_file=cfg.distraction.distraction_file,
+                no_fetch=cfg.distraction.distraction_no_fetch,
+                main_crop_y=0 if cfg.face.face_mode == '2' else None,
+                distraction_ratio=cfg.distraction.distraction_ratio,
             )
         except Exception as e:
             logger.warning(f"Split-screen distraction failed: {e}")
 
     # Burn subtitles
     try:
-        if args.add_distraction:
+        if cfg.distraction.add_distraction:
             split_screen_folder = os.path.join(ctx.project_folder, 'split_screen')
-            split_suffix = "_music_split" if args.add_music else "_split"
+            split_suffix = "_music_split" if cfg.audio.add_music else "_split"
             burn_subtitles.burn(
                 project_folder=ctx.project_folder,
                 source_folder=split_screen_folder,
@@ -711,14 +713,14 @@ def stage_subtitles(ctx: PipelineContext) -> None:
 
 def stage_post_production(ctx: PipelineContext) -> None:
     """Apply post-production effects: thumbnails, color grading, progress bar, emoji, dubbing."""
-    args = ctx.args
+    cfg = ctx.cfg
     if ctx.workflow_choice == "3":
         return
 
     import glob as glob_mod
 
     # Auto thumbnails
-    if args.auto_thumbnail:
+    if cfg.post_production.auto_thumbnail:
         from scripts.auto_thumbnail import extract_best_frame, save_thumbnail
 
         burned_folder = os.path.join(ctx.project_folder, "burned_sub")
@@ -739,12 +741,12 @@ def stage_post_production(ctx: PipelineContext) -> None:
         final_folder = os.path.join(ctx.project_folder, "cuts")
     video_files = sorted(glob_mod.glob(os.path.join(final_folder, "*.mp4")))
 
-    has_any_effect = args.color_grade or args.progress_bar or args.emoji_overlay
+    has_any_effect = cfg.post_production.color_grade or cfg.post_production.progress_bar or cfg.post_production.emoji_overlay
 
     for idx, video_path in enumerate(video_files):
         # Resolve emoji cues for this segment
         emoji_cues: list[dict] = []
-        if args.emoji_overlay and ctx.viral_segments and "segments" in ctx.viral_segments:
+        if cfg.post_production.emoji_overlay and ctx.viral_segments and "segments" in ctx.viral_segments:
             if idx < len(ctx.viral_segments["segments"]):
                 emoji_cues = ctx.viral_segments["segments"][idx].get("emoji_cues", [])
 
@@ -757,11 +759,11 @@ def stage_post_production(ctx: PipelineContext) -> None:
             ok = apply_post_production(
                 video_path,
                 temp_out,
-                lut_name=args.color_grade if args.color_grade else None,
-                lut_intensity=args.grade_intensity,
-                progress_bar=bool(args.progress_bar),
-                bar_color=args.bar_color,
-                bar_position=args.bar_position,
+                lut_name=cfg.post_production.color_grade if cfg.post_production.color_grade else None,
+                lut_intensity=cfg.post_production.grade_intensity,
+                progress_bar=bool(cfg.post_production.progress_bar),
+                bar_color=cfg.post_production.bar_color,
+                bar_position=cfg.post_production.bar_position,
                 emojis=emoji_cues or None,
             )
             if ok and os.path.isfile(temp_out):
@@ -772,7 +774,7 @@ def stage_post_production(ctx: PipelineContext) -> None:
                 os.remove(temp_out)
 
     # AI Dubbing
-    if args.dubbing:
+    if cfg.advanced_ai.dubbing:
         from scripts.ai_dubbing import dub_segment
 
         dub_folder = os.path.join(ctx.project_folder, "burned_sub")
@@ -790,8 +792,8 @@ def stage_post_production(ctx: PipelineContext) -> None:
         for idx, video_path in enumerate(video_files):
             text = segment_texts[idx] if idx < len(segment_texts) else ""
             if text:
-                dubbed_path = video_path.rsplit(".", 1)[0] + f"_dubbed_{args.dubbing_language}.mp4"
-                if dub_segment(video_path, text, args.dubbing_language, dubbed_path, original_volume=args.dubbing_original_volume):
+                dubbed_path = video_path.rsplit(".", 1)[0] + f"_dubbed_{cfg.advanced_ai.dubbing_language}.mp4"
+                if dub_segment(video_path, text, cfg.advanced_ai.dubbing_language, dubbed_path, original_volume=cfg.advanced_ai.dubbing_original_volume):
                     logger.info(f"Dubbed: {os.path.basename(dubbed_path)}")
 
     # NEW: Rename non-retained segments with _DRAFT suffix
@@ -816,16 +818,16 @@ def stage_post_production(ctx: PipelineContext) -> None:
 
 def stage_save_config(ctx: PipelineContext) -> None:
     """Save processing configuration to project folder."""
-    args = ctx.args
+    cfg = ctx.cfg
     try:
-        used_ai_model = args.ai_model_name
+        used_ai_model = cfg.ai.ai_model_name
         if not used_ai_model and ctx.ai_backend != "manual":
             if ctx.ai_backend == "gemini":
                 used_ai_model = ctx.api_config.get("gemini", {}).get("model", "default")
             elif ctx.ai_backend == "g4f":
                 used_ai_model = ctx.api_config.get("g4f", {}).get("model", "default")
 
-        current_sub_config = ctx.sub_config if ctx.sub_config else get_subtitle_config(args.subtitle_config)
+        current_sub_config = ctx.sub_config if ctx.sub_config else get_subtitle_config(cfg.subtitle.subtitle_config)
 
         final_config = {
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -836,30 +838,30 @@ def stage_save_config(ctx: PipelineContext) -> None:
                 "viral_mode": ctx.viral_mode,
                 "themes": ctx.themes,
                 "num_segments": ctx.num_segments,
-                "chunk_size": args.chunk_size
+                "chunk_size": cfg.ai.chunk_size
             },
             "face_config": {
                 "model": ctx.face_model,
                 "mode": ctx.face_mode,
-                "detect_interval": args.face_detect_interval,
-                "filter_threshold": args.face_filter_threshold,
-                "two_face_threshold": args.face_two_threshold,
-                "confidence_threshold": args.face_confidence_threshold,
-                "dead_zone": args.face_dead_zone,
-                "focus_active_speaker": args.focus_active_speaker,
-                "active_speaker_mar": args.active_speaker_mar,
-                "active_speaker_score_diff": args.active_speaker_score_diff,
-                "include_motion": args.include_motion,
+                "detect_interval": cfg.face.face_detect_interval,
+                "filter_threshold": cfg.face.face_filter_threshold,
+                "two_face_threshold": cfg.face.face_two_threshold,
+                "confidence_threshold": cfg.face.face_confidence_threshold,
+                "dead_zone": cfg.face.face_dead_zone,
+                "focus_active_speaker": cfg.face.focus_active_speaker,
+                "active_speaker_mar": cfg.face.active_speaker_mar,
+                "active_speaker_score_diff": cfg.face.active_speaker_score_diff,
+                "include_motion": cfg.face.include_motion,
                 # NEW: 1-face visual params
-                "vertical_offset": args.vertical_offset,
-                "single_face_zoom": args.single_face_zoom,
-                "ema_alpha": args.ema_alpha,
-                "detection_resolution": args.detection_resolution,
+                "vertical_offset": cfg.face.vertical_offset,
+                "single_face_zoom": cfg.face.single_face_zoom,
+                "ema_alpha": cfg.face.ema_alpha,
+                "detection_resolution": cfg.face.detection_resolution,
             },
             "video_config": {
-                "min_duration": args.min_duration,
-                "max_duration": args.max_duration,
-                "whisper_model": args.model
+                "min_duration": cfg.segment.min_duration,
+                "max_duration": cfg.segment.max_duration,
+                "whisper_model": cfg.model
             },
             "subtitle_config": current_sub_config
         }

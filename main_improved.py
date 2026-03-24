@@ -15,6 +15,7 @@ logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(name)s: %(mess
 logger = logging.getLogger(__name__)
 
 from scripts.pipeline.cli import build_parser
+from scripts.pipeline.config import ProcessingConfig
 from scripts.pipeline.errors import PipelineError
 from scripts.pipeline.input_resolver import resolve_input
 from scripts.pipeline.config_prompts import resolve_config
@@ -26,6 +27,7 @@ def main() -> None:
         args = build_parser().parse_args()
         ctx = resolve_input(args)
         ctx = resolve_config(ctx)
+        ctx.config = ProcessingConfig.from_namespace(ctx.args)
         run_pipeline(ctx)
     except PipelineError as e:
         logger.error(str(e))

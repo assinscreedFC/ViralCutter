@@ -4,6 +4,7 @@ from __future__ import annotations
 from argparse import Namespace
 
 from scripts.pipeline.cli import build_parser
+from scripts.pipeline.config import ProcessingConfig
 from scripts.pipeline.config_prompts import resolve_config
 from scripts.pipeline.context import PipelineContext
 from scripts.pipeline.input_resolver import resolve_input
@@ -30,4 +31,6 @@ def build_context_from_dict(params: dict) -> PipelineContext:
     ns.skip_prompts = True
     ctx = resolve_input(ns)
     ctx = resolve_config(ctx)
+    # Build typed config from the (possibly modified) Namespace
+    ctx.config = ProcessingConfig.from_namespace(ctx.args)
     return ctx
