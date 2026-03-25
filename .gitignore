@@ -14,3 +14,8 @@ recapmanga/*.json
 *.log
 api_config.json
 webui/settings.json
+webui/PREVIEW/
+.coverage
+temp_subtitle_config.json
+subtitle_test_config.json
+test_music_out.mp4
