@@ -9,7 +9,7 @@ import pytest
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-from scripts.composite_scorer import compute_composite_score, DEFAULT_WEIGHTS
+from scripts.analysis.composite_scorer import compute_composite_score, DEFAULT_WEIGHTS
 
 
 # ---------------------------------------------------------------------------

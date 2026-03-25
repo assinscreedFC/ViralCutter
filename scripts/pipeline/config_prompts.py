@@ -6,7 +6,7 @@ import logging
 import os
 
 from i18n.i18n import I18nAuto
-from scripts.config import load_api_config
+from scripts.core.config import load_api_config
 from scripts.pipeline.context import PipelineContext
 
 logger = logging.getLogger(__name__)

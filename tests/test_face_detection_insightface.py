@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from scripts.face_detection_insightface import get_face_embedding, cosine_similarity
+from scripts.vision.face_detection_insightface import get_face_embedding, cosine_similarity
 
 
 class TestGetFaceEmbedding:

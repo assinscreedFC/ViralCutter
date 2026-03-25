@@ -423,7 +423,7 @@ def apply_preset(preset):
         )
     return (gr.skip(),) * 22
 
-import scripts.adjust_subtitles as adjust
+import scripts.editing.adjust_subtitles as adjust
 
 def render_preview_video(font, size, color, highlight, outline, outline_thick, shadow, shadow_sz, bold, italic, upper,
                          h_size, w_block, gap, mode, under, strike, border_s, vert_pos, align, remove_punc, animation="none"):

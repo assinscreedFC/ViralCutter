@@ -8,19 +8,17 @@ import sys
 import time
 
 from i18n.i18n import I18nAuto
-from scripts import (
-    download_video,
-    transcribe_video,
-    create_viral_segments,
-    cut_segments,
-    edit_video,
-    adjust_subtitles,
-    burn_subtitles,
-    add_music,
-    save_json,
-    translate_json,
-)
-from scripts.models import Segment
+from scripts.download import download_video
+from scripts.transcription import transcribe_video
+from scripts.analysis import create_viral_segments
+from scripts.editing import cut_segments
+from scripts.editing import edit_video
+from scripts.editing import adjust_subtitles
+from scripts.editing import burn_subtitles
+from scripts.audio import add_music
+from scripts.transcription import save_json
+from scripts.transcription import translate_json
+from scripts.core.models import Segment
 from scripts.pipeline.config import ProcessingConfig
 from scripts.pipeline.context import PipelineContext
 from scripts.pipeline.errors import PipelineError
@@ -237,7 +235,7 @@ def stage_viral_segments(ctx: PipelineContext) -> None:
 
     # Split long segments into parts
     if cfg.segment.enable_parts and ctx.viral_segments and "segments" in ctx.viral_segments:
-        from scripts.split_parts import split_long_segments
+        from scripts.export.split_parts import split_long_segments
         logger.info(i18n("Splitting long segments into parts (AI-guided)..."))
         transcript_segments_for_split = create_viral_segments.load_transcript(ctx.project_folder)
         ctx.viral_segments = split_long_segments(
@@ -300,7 +298,7 @@ def stage_cut(ctx: PipelineContext) -> None:
 
     # Remove silence (jump cuts)
     if cfg.audio.remove_silence:
-        from scripts import remove_silence
+        from scripts import remove_silence  # TODO: update path
         logger.info(i18n("Removing silences (jump cuts)..."))
         remove_silence.process_project(
             project_folder=ctx.project_folder,
@@ -316,8 +314,8 @@ def stage_cut(ctx: PipelineContext) -> None:
 
 def _process_filler_single(video_path: str, json_path: str) -> None:
     """Remove fillers from a single video (thread-safe)."""
-    from scripts.filler_removal import detect_fillers, remove_fillers_from_video, update_subtitle_json
-    from scripts.smart_trim import load_whisperx_words
+    from scripts.quality.filler_removal import detect_fillers, remove_fillers_from_video, update_subtitle_json
+    from scripts.quality.smart_trim import load_whisperx_words
 
     filename = os.path.basename(video_path)
     words = load_whisperx_words(json_path) if os.path.exists(json_path) else []
@@ -337,8 +335,8 @@ def _process_speed_ramp_single(
     video_path: str, speed_up_factor: float, zoom_cues: list,
 ) -> None:
     """Apply speed ramp to a single video (thread-safe)."""
-    from scripts.speed_ramp import apply_speed_ramp
-    from scripts.remove_silence import detect_silences
+    from scripts.postprod.speed_ramp import apply_speed_ramp
+    from scripts.audio.remove_silence import detect_silences
 
     silences = detect_silences(video_path, noise_db=-35, min_duration=0.8)
     highlights = None
@@ -413,14 +411,14 @@ def _analyze_single_segment(
     video_path: str, json_path: str, cfg: ProcessingConfig, engagement_model: str | None = None,
 ) -> dict:
     """Analyze a single segment's quality metrics (thread-safe, no shared state)."""
-    from scripts.smart_trim import load_whisperx_words
+    from scripts.quality.smart_trim import load_whisperx_words
     filename = os.path.basename(video_path)
     result: dict = {}
 
     words = load_whisperx_words(json_path) if os.path.exists(json_path) else []
 
     if cfg.quality.validate_clips:
-        from scripts.clip_validator import validate_clip_boundaries
+        from scripts.quality.clip_validator import validate_clip_boundaries
         boundary = validate_clip_boundaries(video_path, noise_db=cfg.audio.silence_threshold)
         result["speech_ratio"] = boundary["speech_ratio"]
         result["starts_on_silence"] = boundary["starts_on_silence"]
@@ -430,14 +428,14 @@ def _analyze_single_segment(
         logger.info(f"  {filename}: speech_ratio={boundary['speech_ratio']}")
 
     if cfg.quality.hook_detection:
-        from scripts.hook_scorer import score_hook
+        from scripts.analysis.hook_scorer import score_hook
         hook = score_hook(video_path, words)
         result["hook_score"] = hook["hook_score"]
         result["hook_audio_energy"] = hook["audio_energy"]
         logger.info(f"  {filename}: hook_score={hook['hook_score']}")
 
     if cfg.quality.blur_detection:
-        from scripts.blur_detector import detect_blur_frames
+        from scripts.vision.blur_detector import detect_blur_frames
         blur = detect_blur_frames(video_path)
         result["blur_ratio"] = blur["blur_ratio"]
         result["avg_sharpness"] = blur["avg_sharpness"]
@@ -446,7 +444,7 @@ def _analyze_single_segment(
         logger.info(f"  {filename}: blur_ratio={blur['blur_ratio']}, sharpness={blur['avg_sharpness']}")
 
     if cfg.quality.pacing_analysis:
-        from scripts.pacing_analyzer import analyze_pacing
+        from scripts.analysis.pacing_analyzer import analyze_pacing
         pacing = analyze_pacing(video_path, words)
         result["pacing_score"] = pacing["pacing_score"]
         result["words_per_sec"] = pacing["words_per_sec"]
@@ -454,7 +452,7 @@ def _analyze_single_segment(
         logger.info(f"  {filename}: pacing_score={pacing['pacing_score']}, wps={pacing['words_per_sec']}")
 
     if cfg.quality.validate_clips:
-        from scripts.clip_validator import score_visual_variety, analyze_speaker_activity
+        from scripts.quality.clip_validator import score_visual_variety, analyze_speaker_activity
         variety = score_visual_variety(video_path)
         result["visual_variety_score"] = variety["visual_variety_score"]
         result["scene_change_count"] = variety["scene_change_count"]
@@ -467,7 +465,7 @@ def _analyze_single_segment(
 
     # Composite and engagement depend on prior results — compute inline
     if cfg.quality.composite_scoring:
-        from scripts.composite_scorer import compute_composite_score
+        from scripts.analysis.composite_scorer import compute_composite_score
         composite = compute_composite_score(
             hook_score=result.get("hook_score", 50.0),
             speech_ratio=result.get("speech_ratio", 0.8),
@@ -479,7 +477,7 @@ def _analyze_single_segment(
         logger.info(f"  {filename}: composite_score={composite}")
 
     if cfg.advanced_ai.engagement_prediction:
-        from scripts.engagement_predictor import predict_from_metadata
+        from scripts.analysis.engagement_predictor import predict_from_metadata
         engagement = predict_from_metadata(result, model_path=engagement_model)
         result["engagement_score"] = engagement
         logger.info(f"  {filename}: engagement_score={engagement}")
@@ -679,8 +677,8 @@ def stage_subtitles(ctx: PipelineContext) -> None:
     if cfg.distraction.add_distraction:
         logger.info("Adding split-screen distraction video...")
         try:
-            from scripts.add_distraction_video import add_distraction_to_project
-            from scripts.add_distraction_video import DEFAULT_DISTRACTION_DIR as _DIST_DIR
+            from scripts.postprod.add_distraction_video import add_distraction_to_project
+            from scripts.postprod.add_distraction_video import DEFAULT_DISTRACTION_DIR as _DIST_DIR
             add_distraction_to_project(
                 project_folder=ctx.project_folder,
                 distraction_dir=cfg.distraction.distraction_dir or _DIST_DIR,
@@ -719,7 +717,7 @@ def stage_ab_variants(ctx: PipelineContext) -> None:
     if not cfg.post_production.ab_variants:
         return
 
-    from scripts.ab_variants import generate_variants
+    from scripts.postprod.ab_variants import generate_variants
     sub_config = ctx.sub_config if hasattr(ctx, "sub_config") else None
     variants = generate_variants(
         project_folder=ctx.project_folder,
@@ -744,7 +742,7 @@ def stage_post_production(ctx: PipelineContext) -> None:
 
     # Auto thumbnails
     if cfg.post_production.auto_thumbnail:
-        from scripts.auto_thumbnail import extract_best_frame, save_thumbnail
+        from scripts.editing.auto_thumbnail import extract_best_frame, save_thumbnail
 
         burned_folder = os.path.join(ctx.project_folder, "burned_sub")
         if not os.path.isdir(burned_folder):
@@ -778,7 +776,7 @@ def stage_post_production(ctx: PipelineContext) -> None:
 
         temp_out = video_path + ".tmp.mp4"
         try:
-            from scripts.overlay_effects import apply_post_production
+            from scripts.editing.overlay_effects import apply_post_production
             ok = apply_post_production(
                 video_path,
                 temp_out,
@@ -798,7 +796,7 @@ def stage_post_production(ctx: PipelineContext) -> None:
 
     # AI Dubbing
     if cfg.advanced_ai.dubbing:
-        from scripts.ai_dubbing import dub_segment
+        from scripts.audio.ai_dubbing import dub_segment
 
         dub_folder = os.path.join(ctx.project_folder, "burned_sub")
         if not os.path.isdir(dub_folder):

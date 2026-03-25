@@ -51,8 +51,8 @@ def generate_captions_for_project(proj_name: str):
         return "Aucun projet selectionne.", None
 
     try:
-        from scripts import create_viral_segments
-        from scripts import save_json
+        from scripts.analysis import create_viral_segments
+        from scripts.transcription import save_json
 
         # Charger api_config
         api_config_path = os.path.join(WORKING_DIR, "api_config.json")
@@ -511,7 +511,7 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
             import sys as _sys
             if WORKING_DIR not in _sys.path:
                 _sys.path.insert(0, WORKING_DIR)
-            from scripts.post_social import post_all_segments
+            from scripts.export.post_social import post_all_segments
             logs += "\n[Auto Post] Starting...\n"
             yield logs, gr.update(interactive=False), gr.update(visible=True), None
             post_results = post_all_segments(

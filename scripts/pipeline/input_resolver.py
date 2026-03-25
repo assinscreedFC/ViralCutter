@@ -6,7 +6,7 @@ import logging
 import os
 
 from i18n.i18n import I18nAuto
-from scripts.models import Segment
+from scripts.core.models import Segment
 from scripts.pipeline.context import PipelineContext
 from scripts.pipeline.errors import PipelineError
 

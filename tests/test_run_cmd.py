@@ -8,10 +8,10 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from scripts.run_cmd import run as run_cmd
+from scripts.core.run_cmd import run as run_cmd
 
 
-@patch("scripts.run_cmd.subprocess.run")
+@patch("scripts.core.run_cmd.subprocess.run")
 def test_auto_timeout_ffmpeg(mock_run):
     mock_run.return_value = MagicMock(spec=subprocess.CompletedProcess)
     run_cmd(["ffmpeg", "-i", "input.mp4", "output.mp4"])
@@ -19,7 +19,7 @@ def test_auto_timeout_ffmpeg(mock_run):
     assert kwargs["timeout"] == 600
 
 
-@patch("scripts.run_cmd.subprocess.run")
+@patch("scripts.core.run_cmd.subprocess.run")
 def test_auto_timeout_ffprobe(mock_run):
     mock_run.return_value = MagicMock(spec=subprocess.CompletedProcess)
     run_cmd(["ffprobe", "-v", "quiet", "input.mp4"])
@@ -27,7 +27,7 @@ def test_auto_timeout_ffprobe(mock_run):
     assert kwargs["timeout"] == 600
 
 
-@patch("scripts.run_cmd.subprocess.run")
+@patch("scripts.core.run_cmd.subprocess.run")
 def test_auto_timeout_other(mock_run):
     mock_run.return_value = MagicMock(spec=subprocess.CompletedProcess)
     run_cmd(["yt-dlp", "https://example.com/video"])
@@ -35,7 +35,7 @@ def test_auto_timeout_other(mock_run):
     assert kwargs["timeout"] == 120
 
 
-@patch("scripts.run_cmd.subprocess.run")
+@patch("scripts.core.run_cmd.subprocess.run")
 def test_explicit_timeout(mock_run):
     mock_run.return_value = MagicMock(spec=subprocess.CompletedProcess)
     run_cmd(["ffmpeg", "-i", "input.mp4"], timeout=30)
@@ -43,7 +43,7 @@ def test_explicit_timeout(mock_run):
     assert kwargs["timeout"] == 30
 
 
-@patch("scripts.run_cmd.subprocess.run")
+@patch("scripts.core.run_cmd.subprocess.run")
 def test_success_returns_result(mock_run):
     expected = MagicMock(spec=subprocess.CompletedProcess)
     expected.returncode = 0
@@ -52,7 +52,7 @@ def test_success_returns_result(mock_run):
     assert result is expected
 
 
-@patch("scripts.run_cmd.subprocess.run")
+@patch("scripts.core.run_cmd.subprocess.run")
 def test_check_false(mock_run):
     mock_run.return_value = MagicMock(spec=subprocess.CompletedProcess)
     run_cmd(["false"], check=False)
@@ -60,14 +60,14 @@ def test_check_false(mock_run):
     assert kwargs["check"] is False
 
 
-@patch("scripts.run_cmd.subprocess.run")
+@patch("scripts.core.run_cmd.subprocess.run")
 def test_timeout_expired_raises(mock_run):
     mock_run.side_effect = subprocess.TimeoutExpired(cmd=["sleep", "999"], timeout=120)
     with pytest.raises(subprocess.TimeoutExpired):
         run_cmd(["sleep", "999"])
 
 
-@patch("scripts.run_cmd.subprocess.run")
+@patch("scripts.core.run_cmd.subprocess.run")
 def test_called_process_error_raises(mock_run):
     error = subprocess.CalledProcessError(
         returncode=1,

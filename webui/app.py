@@ -949,7 +949,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     import sys as _sys
                     if WORKING_DIR not in _sys.path:
                         _sys.path.insert(0, WORKING_DIR)
-                    from scripts.post_social import post_all_segments
+                    from scripts.export.post_social import post_all_segments
                     results = post_all_segments(
                         project_folder=proj_path,
                         post_youtube=post_yt,

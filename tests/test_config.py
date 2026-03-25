@@ -11,7 +11,7 @@ import pytest
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-from scripts.config import (
+from scripts.core.config import (
     load_api_config,
     validate_api_config,
     _api_key_is_empty,
@@ -157,7 +157,7 @@ class TestLoadApiConfig:
     def test_missing_api_config_returns_defaults(self, tmp_path):
         """When no config files exist at all, we should get a valid dict."""
         # Point project root to a dir that has no config files
-        with patch("scripts.config._PROJECT_ROOT", str(tmp_path)):
+        with patch("scripts.core.config._PROJECT_ROOT", str(tmp_path)):
             cfg = load_api_config()
         assert "backend" in cfg
         assert "chunk_size" in cfg
@@ -169,7 +169,7 @@ class TestLoadApiConfig:
             "selected_api": "g4f",
             "g4f": {"model": "gpt-4o", "chunk_size": 20000},
         }
-        with patch("scripts.config._PROJECT_ROOT", str(tmp_path)):
+        with patch("scripts.core.config._PROJECT_ROOT", str(tmp_path)):
             (tmp_path / "api_config.json").write_text(json.dumps(data), encoding="utf-8")
             cfg = load_api_config()
         assert cfg["backend"] == "g4f"
@@ -183,7 +183,7 @@ class TestLoadApiConfig:
         }
         proc_data = {"ai_config": {"backend": "g4f", "model_name": "gpt-4o"}}
 
-        with patch("scripts.config._PROJECT_ROOT", str(tmp_path)):
+        with patch("scripts.core.config._PROJECT_ROOT", str(tmp_path)):
             (tmp_path / "api_config.json").write_text(json.dumps(api_data), encoding="utf-8")
             project_dir = tmp_path / "proj"
             project_dir.mkdir()
@@ -198,13 +198,13 @@ class TestLoadApiConfig:
     def test_chunk_size_fallback_to_default(self, tmp_path):
         """If chunk_size is absent from all config files, use 15000."""
         data = {"selected_api": "g4f", "g4f": {"model": "gpt-4o"}}
-        with patch("scripts.config._PROJECT_ROOT", str(tmp_path)):
+        with patch("scripts.core.config._PROJECT_ROOT", str(tmp_path)):
             (tmp_path / "api_config.json").write_text(json.dumps(data), encoding="utf-8")
             cfg = load_api_config()
         assert cfg["chunk_size"] == 15000
 
     def test_returned_dict_has_all_keys(self, tmp_path):
-        with patch("scripts.config._PROJECT_ROOT", str(tmp_path)):
+        with patch("scripts.core.config._PROJECT_ROOT", str(tmp_path)):
             cfg = load_api_config()
         for key in ("backend", "model_name", "api_key", "chunk_size"):
             assert key in cfg
@@ -214,7 +214,7 @@ class TestLoadApiConfig:
         api_data = {"selected_api": "g4f", "g4f": {"model": "gpt-4o", "chunk_size": 10000}}
         proc_data = {"ai_config": {"backend": "manual"}}
 
-        with patch("scripts.config._PROJECT_ROOT", str(tmp_path)):
+        with patch("scripts.core.config._PROJECT_ROOT", str(tmp_path)):
             (tmp_path / "api_config.json").write_text(json.dumps(api_data), encoding="utf-8")
             project_dir = tmp_path / "proj"
             project_dir.mkdir()

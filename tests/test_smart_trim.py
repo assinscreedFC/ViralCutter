@@ -10,7 +10,7 @@ import pytest
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-from scripts.smart_trim import snap_to_sentence_boundary, load_whisperx_words, _is_sentence_end
+from scripts.quality.smart_trim import snap_to_sentence_boundary, load_whisperx_words, _is_sentence_end
 
 
 # ---------------------------------------------------------------------------

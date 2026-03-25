@@ -23,7 +23,7 @@ sys.path.insert(0, PROJECT_ROOT)
 # Some modules have heavy imports (cv2, mediapipe) so we mock them.
 
 # --- create_viral_segments: pure stdlib, safe to import directly -----------
-from scripts.create_viral_segments import clean_json_response, clean_json_response_simple
+from scripts.analysis.create_viral_segments import clean_json_response, clean_json_response_simple
 
 # --- subtitle_editor: parse_timestamp (needs json/os only) ----------------
 from webui.subtitle_editor import parse_timestamp
@@ -229,7 +229,7 @@ class TestParseSrt:
         return path
 
     def test_standard_srt(self):
-        from scripts.transcribe_video import parse_srt
+        from scripts.transcription.transcribe_video import parse_srt
 
         content = textwrap.dedent("""\
         1
@@ -254,7 +254,7 @@ class TestParseSrt:
 
     def test_srt_with_html_tags(self):
         """Les balises HTML dans le texte SRT doivent etre supprimees."""
-        from scripts.transcribe_video import parse_srt
+        from scripts.transcription.transcribe_video import parse_srt
 
         content = textwrap.dedent("""\
         1
@@ -272,7 +272,7 @@ class TestParseSrt:
 
     def test_srt_multiline_text(self):
         """Un bloc SRT peut avoir du texte sur plusieurs lignes."""
-        from scripts.transcribe_video import parse_srt
+        from scripts.transcription.transcribe_video import parse_srt
 
         content = textwrap.dedent("""\
         1
@@ -290,7 +290,7 @@ class TestParseSrt:
             os.unlink(path)
 
     def test_empty_srt(self):
-        from scripts.transcribe_video import parse_srt
+        from scripts.transcription.transcribe_video import parse_srt
         path = self._write_srt("")
         try:
             result = parse_srt(path)
@@ -301,7 +301,7 @@ class TestParseSrt:
 
     def test_malformed_srt_no_timestamp(self):
         """Bloc sans timestamp -> ignore sans crash."""
-        from scripts.transcribe_video import parse_srt
+        from scripts.transcription.transcribe_video import parse_srt
 
         content = textwrap.dedent("""\
         1
@@ -322,7 +322,7 @@ class TestParseSrt:
 
     def test_srt_windows_line_endings(self):
         """SRT avec \\r\\n (CRLF) doit etre parse correctement."""
-        from scripts.transcribe_video import parse_srt
+        from scripts.transcription.transcribe_video import parse_srt
 
         content = "1\r\n00:00:00,000 --> 00:00:01,500\r\nCRLF test\r\n\r\n"
         fd, path = tempfile.mkstemp(suffix=".srt")
@@ -349,7 +349,7 @@ class TestParseVtt:
         return path
 
     def test_standard_vtt(self):
-        from scripts.transcribe_video import parse_vtt
+        from scripts.transcription.transcribe_video import parse_vtt
 
         content = textwrap.dedent("""\
         WEBVTT
@@ -373,7 +373,7 @@ class TestParseVtt:
 
     def test_vtt_with_webvtt_header(self):
         """Le header WEBVTT doit etre ignore."""
-        from scripts.transcribe_video import parse_vtt
+        from scripts.transcription.transcribe_video import parse_vtt
 
         content = textwrap.dedent("""\
         WEBVTT
@@ -392,7 +392,7 @@ class TestParseVtt:
             os.unlink(path)
 
     def test_vtt_with_html_tags(self):
-        from scripts.transcribe_video import parse_vtt
+        from scripts.transcription.transcribe_video import parse_vtt
 
         content = textwrap.dedent("""\
         WEBVTT
@@ -410,7 +410,7 @@ class TestParseVtt:
 
     def test_vtt_mm_ss_format(self):
         """VTT avec format MM:SS.mmm au lieu de HH:MM:SS.mmm."""
-        from scripts.transcribe_video import parse_vtt
+        from scripts.transcription.transcribe_video import parse_vtt
 
         content = textwrap.dedent("""\
         WEBVTT
@@ -430,7 +430,7 @@ class TestParseVtt:
 
     def test_vtt_timestamp_with_settings(self):
         """VTT avec settings apres le timestamp (position, align)."""
-        from scripts.transcribe_video import parse_vtt
+        from scripts.transcription.transcribe_video import parse_vtt
 
         content = textwrap.dedent("""\
         WEBVTT
@@ -448,7 +448,7 @@ class TestParseVtt:
             os.unlink(path)
 
     def test_empty_vtt(self):
-        from scripts.transcribe_video import parse_vtt
+        from scripts.transcription.transcribe_video import parse_vtt
         path = self._write_vtt("WEBVTT\n\n")
         try:
             result = parse_vtt(path)
@@ -499,12 +499,12 @@ class TestGetBestEncoder:
         """Importe le module ffmpeg_utils et reset le cache."""
         import importlib
 
-        if "scripts.ffmpeg_utils" in sys.modules:
-            importlib.reload(sys.modules["scripts.ffmpeg_utils"])
+        if "scripts.core.ffmpeg_utils" in sys.modules:
+            importlib.reload(sys.modules["scripts.core.ffmpeg_utils"])
         else:
-            import scripts.ffmpeg_utils
+            import scripts.core.ffmpeg_utils
 
-        mod = sys.modules["scripts.ffmpeg_utils"]
+        mod = sys.modules["scripts.core.ffmpeg_utils"]
         mod.CACHED_ENCODER = None  # Reset cache
         return mod
 
@@ -593,7 +593,7 @@ class TestBuildQualityParams:
     """Tests pour build_quality_params() — flags qualite par encodeur."""
 
     def test_nvenc_params(self):
-        from scripts.ffmpeg_utils import build_quality_params
+        from scripts.core.ffmpeg_utils import build_quality_params
         params = build_quality_params("h264_nvenc")
         assert "-rc:v" in params
         assert "-cq" in params
@@ -601,31 +601,31 @@ class TestBuildQualityParams:
         assert "-bufsize" in params
 
     def test_amf_params(self):
-        from scripts.ffmpeg_utils import build_quality_params
+        from scripts.core.ffmpeg_utils import build_quality_params
         params = build_quality_params("h264_amf")
         assert "-rc" in params
         assert "vbr_peak" in params
         assert "-qp_i" in params
 
     def test_qsv_params(self):
-        from scripts.ffmpeg_utils import build_quality_params
+        from scripts.core.ffmpeg_utils import build_quality_params
         params = build_quality_params("h264_qsv")
         assert "-global_quality" in params
 
     def test_videotoolbox_params(self):
-        from scripts.ffmpeg_utils import build_quality_params
+        from scripts.core.ffmpeg_utils import build_quality_params
         params = build_quality_params("h264_videotoolbox")
         assert "-q:v" in params
         assert "65" in params
 
     def test_cpu_params(self):
-        from scripts.ffmpeg_utils import build_quality_params
+        from scripts.core.ffmpeg_utils import build_quality_params
         params = build_quality_params("libx264")
         assert "-crf" in params
         assert "18" in params
 
     def test_unknown_encoder_uses_cpu_defaults(self):
-        from scripts.ffmpeg_utils import build_quality_params
+        from scripts.core.ffmpeg_utils import build_quality_params
         params = build_quality_params("some_unknown_encoder")
         assert "-crf" in params
 
@@ -634,27 +634,27 @@ class TestBuildPresetFlags:
     """Tests pour _build_preset_flags() — flags preset adaptes par encodeur."""
 
     def test_nvenc_uses_preset(self):
-        from scripts.ffmpeg_utils import _build_preset_flags
+        from scripts.core.ffmpeg_utils import _build_preset_flags
         flags = _build_preset_flags("h264_nvenc", "p1")
         assert flags == ["-preset", "p1"]
 
     def test_amf_uses_quality(self):
-        from scripts.ffmpeg_utils import _build_preset_flags
+        from scripts.core.ffmpeg_utils import _build_preset_flags
         flags = _build_preset_flags("h264_amf", "balanced")
         assert flags == ["-quality", "balanced"]
 
     def test_videotoolbox_empty(self):
-        from scripts.ffmpeg_utils import _build_preset_flags
+        from scripts.core.ffmpeg_utils import _build_preset_flags
         flags = _build_preset_flags("h264_videotoolbox", "default")
         assert flags == []
 
     def test_qsv_uses_preset(self):
-        from scripts.ffmpeg_utils import _build_preset_flags
+        from scripts.core.ffmpeg_utils import _build_preset_flags
         flags = _build_preset_flags("h264_qsv", "faster")
         assert flags == ["-preset", "faster"]
 
     def test_libx264_uses_preset(self):
-        from scripts.ffmpeg_utils import _build_preset_flags
+        from scripts.core.ffmpeg_utils import _build_preset_flags
         flags = _build_preset_flags("libx264", "fast")
         assert flags == ["-preset", "fast"]
 
@@ -664,11 +664,11 @@ class TestCreateFfmpegPipe:
 
     def test_pipe_creates_popen(self):
         """create_ffmpeg_pipe doit appeler subprocess.Popen avec les bons args."""
-        import scripts.ffmpeg_utils as mod
+        import scripts.core.ffmpeg_utils as mod
         old_cache = mod.CACHED_ENCODER
         mod.CACHED_ENCODER = ("libx264", "fast")
         try:
-            with patch("scripts.ffmpeg_utils.subprocess.Popen") as mock_popen:
+            with patch("scripts.core.ffmpeg_utils.subprocess.Popen") as mock_popen:
                 mock_popen.return_value = MagicMock()
                 proc = mod.create_ffmpeg_pipe("/tmp/out.mp4", 30.0)
                 mock_popen.assert_called_once()
@@ -684,11 +684,11 @@ class TestCreateFfmpegPipe:
 
     def test_pipe_custom_dimensions(self):
         """create_ffmpeg_pipe respecte les dimensions personnalisees."""
-        import scripts.ffmpeg_utils as mod
+        import scripts.core.ffmpeg_utils as mod
         old_cache = mod.CACHED_ENCODER
         mod.CACHED_ENCODER = ("h264_nvenc", "p1")
         try:
-            with patch("scripts.ffmpeg_utils.subprocess.Popen") as mock_popen:
+            with patch("scripts.core.ffmpeg_utils.subprocess.Popen") as mock_popen:
                 mock_popen.return_value = MagicMock()
                 mod.create_ffmpeg_pipe("/tmp/out.mp4", 25.0, width=720, height=1280)
                 cmd = mock_popen.call_args[0][0]
@@ -789,7 +789,7 @@ class TestPathTraversalValidation:
 # ===========================================================================
 # 8. validate_url — SSRF protection for yt-dlp downloads
 # ===========================================================================
-from scripts.download_video import validate_url
+from scripts.download.download_video import validate_url
 
 
 class TestValidateUrl:
@@ -888,12 +888,12 @@ class TestBuildLutFilter:
     """Tests pour build_lut_filter() — genere un filtre LUT sans executer FFmpeg."""
 
     def test_returns_none_when_lut_file_missing(self):
-        from scripts.color_grading import build_lut_filter
+        from scripts.editing.color_grading import build_lut_filter
         result = build_lut_filter(lut_name="nonexistent.cube", lut_dir=tempfile.mkdtemp())
         assert result is None
 
     def test_returns_filter_string_with_valid_lut(self):
-        from scripts.color_grading import build_lut_filter
+        from scripts.editing.color_grading import build_lut_filter
         tmp_dir = tempfile.mkdtemp()
         lut_file = os.path.join(tmp_dir, "test.cube")
         with open(lut_file, "w") as f:
@@ -909,7 +909,7 @@ class TestBuildLutFilter:
             os.rmdir(tmp_dir)
 
     def test_intensity_clamped(self):
-        from scripts.color_grading import build_lut_filter
+        from scripts.editing.color_grading import build_lut_filter
         tmp_dir = tempfile.mkdtemp()
         lut_file = os.path.join(tmp_dir, "test.cube")
         with open(lut_file, "w") as f:
@@ -923,13 +923,13 @@ class TestBuildLutFilter:
             os.rmdir(tmp_dir)
 
     def test_path_traversal_blocked(self):
-        from scripts.color_grading import build_lut_filter
+        from scripts.editing.color_grading import build_lut_filter
         result = build_lut_filter(lut_name="../../etc/passwd", lut_dir=tempfile.mkdtemp())
         assert result is None
 
     def test_backslash_escaping(self):
         """LUT path with backslashes should be converted to forward slashes."""
-        from scripts.color_grading import build_lut_filter
+        from scripts.editing.color_grading import build_lut_filter
         tmp_dir = tempfile.mkdtemp()
         lut_file = os.path.join(tmp_dir, "my_lut.cube")
         with open(lut_file, "w") as f:
@@ -952,7 +952,7 @@ class TestApplyLutPathTraversal:
 
     def test_apply_lut_traversal_blocked(self):
         """apply_lut() doit bloquer les noms LUT avec ../."""
-        from scripts.color_grading import apply_lut
+        from scripts.editing.color_grading import apply_lut
         tmp_dir = tempfile.mkdtemp()
         try:
             result = apply_lut(
@@ -965,7 +965,7 @@ class TestApplyLutPathTraversal:
 
     def test_apply_lut_absolute_path_blocked(self):
         """apply_lut() doit bloquer un chemin absolu comme nom LUT."""
-        from scripts.color_grading import apply_lut
+        from scripts.editing.color_grading import apply_lut
         tmp_dir = tempfile.mkdtemp()
         if sys.platform == "win32":
             malicious = "C:\\Windows\\System32\\evil.cube"
@@ -983,7 +983,7 @@ class TestApplyLutPathTraversal:
 
     def test_build_lut_filter_absolute_path_blocked(self):
         """build_lut_filter() doit bloquer un chemin absolu comme nom LUT."""
-        from scripts.color_grading import build_lut_filter
+        from scripts.editing.color_grading import build_lut_filter
         tmp_dir = tempfile.mkdtemp()
         if sys.platform == "win32":
             malicious = "C:\\Windows\\System32\\evil.cube"
@@ -1004,12 +1004,12 @@ class TestApplyPostProduction:
 
     def test_no_effects_returns_true_no_encode(self):
         """Aucun effet active -> True sans appel FFmpeg."""
-        from scripts.overlay_effects import apply_post_production
+        from scripts.editing.overlay_effects import apply_post_production
         result = apply_post_production("/fake/input.mp4", "/fake/output.mp4")
         assert result is True
 
     def test_progress_bar_invalid_color_returns_false(self):
-        from scripts.overlay_effects import apply_post_production
+        from scripts.editing.overlay_effects import apply_post_production
         result = apply_post_production(
             "/fake/input.mp4", "/fake/output.mp4",
             progress_bar=True, bar_color="invalid;color",
@@ -1017,7 +1017,7 @@ class TestApplyPostProduction:
         assert result is False
 
     def test_progress_bar_invalid_position_returns_false(self):
-        from scripts.overlay_effects import apply_post_production
+        from scripts.editing.overlay_effects import apply_post_production
         result = apply_post_production(
             "/fake/input.mp4", "/fake/output.mp4",
             progress_bar=True, bar_position="middle",
@@ -1026,13 +1026,13 @@ class TestApplyPostProduction:
 
     def test_single_effect_bar_only(self):
         """Progress bar seul: verifie la commande FFmpeg generee."""
-        from scripts.overlay_effects import apply_post_production
-        import scripts.ffmpeg_utils as ffu
+        from scripts.editing.overlay_effects import apply_post_production
+        import scripts.core.ffmpeg_utils as ffu
         old_cache = ffu.CACHED_ENCODER
         ffu.CACHED_ENCODER = ("libx264", "fast")
         try:
-            with patch("scripts.overlay_effects.get_video_duration", return_value=10.0), \
-                 patch("scripts.overlay_effects.run_cmd") as mock_run:
+            with patch("scripts.editing.overlay_effects.get_video_duration", return_value=10.0), \
+                 patch("scripts.editing.overlay_effects.run_cmd") as mock_run:
                 result = apply_post_production(
                     "/fake/input.mp4", "/fake/output.mp4",
                     progress_bar=True, bar_color="white", bar_position="bottom",
@@ -1052,8 +1052,8 @@ class TestApplyPostProduction:
 
     def test_lut_only_with_missing_file(self):
         """LUT active mais fichier absent -> LUT saute, pas de filtre, False."""
-        from scripts.overlay_effects import apply_post_production
-        with patch("scripts.overlay_effects.get_video_duration", return_value=10.0):
+        from scripts.editing.overlay_effects import apply_post_production
+        with patch("scripts.editing.overlay_effects.get_video_duration", return_value=10.0):
             result = apply_post_production(
                 "/fake/input.mp4", "/fake/output.mp4",
                 lut_name="nonexistent_lut.cube", lut_dir=tempfile.mkdtemp(),
@@ -1063,16 +1063,16 @@ class TestApplyPostProduction:
 
     def test_combined_bar_and_emoji(self):
         """Progress bar + emoji: verifie que filter_complex contient les deux."""
-        from scripts.overlay_effects import apply_post_production
-        import scripts.ffmpeg_utils as ffu
+        from scripts.editing.overlay_effects import apply_post_production
+        import scripts.core.ffmpeg_utils as ffu
         old_cache = ffu.CACHED_ENCODER
         ffu.CACHED_ENCODER = ("libx264", "fast")
         try:
             fake_png = tempfile.NamedTemporaryFile(suffix=".png", delete=False).name
             emojis = [{"emoji": "fire", "timestamp": 1.0, "duration": 2.0, "position": "center"}]
-            with patch("scripts.overlay_effects.get_video_duration", return_value=10.0), \
-                 patch("scripts.overlay_effects._render_emoji_png", return_value=fake_png), \
-                 patch("scripts.overlay_effects.run_cmd") as mock_run:
+            with patch("scripts.editing.overlay_effects.get_video_duration", return_value=10.0), \
+                 patch("scripts.editing.overlay_effects._render_emoji_png", return_value=fake_png), \
+                 patch("scripts.editing.overlay_effects.run_cmd") as mock_run:
                 result = apply_post_production(
                     "/fake/input.mp4", "/fake/output.mp4",
                     progress_bar=True, bar_color="white", bar_position="top",
@@ -1092,8 +1092,8 @@ class TestApplyPostProduction:
 
     def test_all_three_effects(self):
         """LUT + progress bar + emoji: 3 effets dans un seul filter_complex."""
-        from scripts.overlay_effects import apply_post_production
-        import scripts.ffmpeg_utils as ffu
+        from scripts.editing.overlay_effects import apply_post_production
+        import scripts.core.ffmpeg_utils as ffu
         old_cache = ffu.CACHED_ENCODER
         ffu.CACHED_ENCODER = ("libx264", "fast")
         tmp_dir = tempfile.mkdtemp()
@@ -1103,9 +1103,9 @@ class TestApplyPostProduction:
         try:
             fake_png = tempfile.NamedTemporaryFile(suffix=".png", delete=False).name
             emojis = [{"emoji": "star", "timestamp": 0.5, "duration": 1.0, "position": "top-right"}]
-            with patch("scripts.overlay_effects.get_video_duration", return_value=15.0), \
-                 patch("scripts.overlay_effects._render_emoji_png", return_value=fake_png), \
-                 patch("scripts.overlay_effects.run_cmd") as mock_run:
+            with patch("scripts.editing.overlay_effects.get_video_duration", return_value=15.0), \
+                 patch("scripts.editing.overlay_effects._render_emoji_png", return_value=fake_png), \
+                 patch("scripts.editing.overlay_effects.run_cmd") as mock_run:
                 result = apply_post_production(
                     "/fake/input.mp4", "/fake/output.mp4",
                     lut_name="test.cube", lut_intensity=0.7, lut_dir=tmp_dir,
@@ -1132,8 +1132,8 @@ class TestApplyPostProduction:
 
     def test_invalid_duration_returns_false(self):
         """Duree video invalide -> False."""
-        from scripts.overlay_effects import apply_post_production
-        with patch("scripts.overlay_effects.get_video_duration", return_value=0.0):
+        from scripts.editing.overlay_effects import apply_post_production
+        with patch("scripts.editing.overlay_effects.get_video_duration", return_value=0.0):
             result = apply_post_production(
                 "/fake/input.mp4", "/fake/output.mp4",
                 progress_bar=True,
@@ -1142,13 +1142,13 @@ class TestApplyPostProduction:
 
     def test_ffmpeg_failure_returns_false(self):
         """Erreur FFmpeg -> False."""
-        from scripts.overlay_effects import apply_post_production
-        import scripts.ffmpeg_utils as ffu
+        from scripts.editing.overlay_effects import apply_post_production
+        import scripts.core.ffmpeg_utils as ffu
         old_cache = ffu.CACHED_ENCODER
         ffu.CACHED_ENCODER = ("libx264", "fast")
         try:
-            with patch("scripts.overlay_effects.get_video_duration", return_value=10.0), \
-                 patch("scripts.overlay_effects.run_cmd", side_effect=RuntimeError("ffmpeg crash")):
+            with patch("scripts.editing.overlay_effects.get_video_duration", return_value=10.0), \
+                 patch("scripts.editing.overlay_effects.run_cmd", side_effect=RuntimeError("ffmpeg crash")):
                 result = apply_post_production(
                     "/fake/input.mp4", "/fake/output.mp4",
                     progress_bar=True,
@@ -1159,17 +1159,17 @@ class TestApplyPostProduction:
 
     def test_emoji_png_cleanup_on_success(self):
         """Les PNG emoji temporaires sont supprimes meme en cas de succes."""
-        from scripts.overlay_effects import apply_post_production
-        import scripts.ffmpeg_utils as ffu
+        from scripts.editing.overlay_effects import apply_post_production
+        import scripts.core.ffmpeg_utils as ffu
         old_cache = ffu.CACHED_ENCODER
         ffu.CACHED_ENCODER = ("libx264", "fast")
         try:
             fake_png = tempfile.NamedTemporaryFile(suffix=".png", delete=False).name
             assert os.path.exists(fake_png)
             emojis = [{"emoji": "fire", "timestamp": 0, "duration": 1}]
-            with patch("scripts.overlay_effects.get_video_duration", return_value=5.0), \
-                 patch("scripts.overlay_effects._render_emoji_png", return_value=fake_png), \
-                 patch("scripts.overlay_effects.run_cmd"):
+            with patch("scripts.editing.overlay_effects.get_video_duration", return_value=5.0), \
+                 patch("scripts.editing.overlay_effects._render_emoji_png", return_value=fake_png), \
+                 patch("scripts.editing.overlay_effects.run_cmd"):
                 apply_post_production(
                     "/fake/input.mp4", "/fake/output.mp4",
                     emojis=emojis,
@@ -1181,16 +1181,16 @@ class TestApplyPostProduction:
 
     def test_emoji_png_cleanup_on_failure(self):
         """Les PNG emoji temporaires sont supprimes meme en cas d'erreur."""
-        from scripts.overlay_effects import apply_post_production
-        import scripts.ffmpeg_utils as ffu
+        from scripts.editing.overlay_effects import apply_post_production
+        import scripts.core.ffmpeg_utils as ffu
         old_cache = ffu.CACHED_ENCODER
         ffu.CACHED_ENCODER = ("libx264", "fast")
         try:
             fake_png = tempfile.NamedTemporaryFile(suffix=".png", delete=False).name
             emojis = [{"emoji": "fire", "timestamp": 0, "duration": 1}]
-            with patch("scripts.overlay_effects.get_video_duration", return_value=5.0), \
-                 patch("scripts.overlay_effects._render_emoji_png", return_value=fake_png), \
-                 patch("scripts.overlay_effects.run_cmd", side_effect=RuntimeError("boom")):
+            with patch("scripts.editing.overlay_effects.get_video_duration", return_value=5.0), \
+                 patch("scripts.editing.overlay_effects._render_emoji_png", return_value=fake_png), \
+                 patch("scripts.editing.overlay_effects.run_cmd", side_effect=RuntimeError("boom")):
                 apply_post_production(
                     "/fake/input.mp4", "/fake/output.mp4",
                     emojis=emojis,
@@ -1208,7 +1208,7 @@ class TestABVariants:
 
     def test_modify_hook_text_list_format(self):
         """Test hook text modification with list format."""
-        from scripts.ab_variants import _modify_hook_text
+        from scripts.postprod.ab_variants import _modify_hook_text
         sub_data = [
             {"word": "Hello", "start": 0.0, "end": 0.5},
             {"word": "world", "start": 0.5, "end": 1.0},
@@ -1224,7 +1224,7 @@ class TestABVariants:
 
     def test_modify_hook_text_dict_format(self):
         """Test hook text modification with dict format."""
-        from scripts.ab_variants import _modify_hook_text
+        from scripts.postprod.ab_variants import _modify_hook_text
         sub_data = {
             "words": [
                 {"word": "Hello", "start": 0.0, "end": 0.5},
@@ -1237,13 +1237,13 @@ class TestABVariants:
 
     def test_modify_hook_text_empty(self):
         """Test with empty data."""
-        from scripts.ab_variants import _modify_hook_text
+        from scripts.postprod.ab_variants import _modify_hook_text
         result = _modify_hook_text([], "Test")
         assert result == []
 
     def test_modify_hook_text_does_not_mutate_original(self):
         """La fonction ne doit pas muter les donnees originales."""
-        from scripts.ab_variants import _modify_hook_text
+        from scripts.postprod.ab_variants import _modify_hook_text
         original = [
             {"word": "Hello", "start": 0.0, "end": 0.5},
             {"word": "world", "start": 0.5, "end": 1.0},
@@ -1253,7 +1253,7 @@ class TestABVariants:
 
     def test_modify_hook_text_variant_longer_than_words(self):
         """Variant text plus long que le nombre de mots -> pas de crash."""
-        from scripts.ab_variants import _modify_hook_text
+        from scripts.postprod.ab_variants import _modify_hook_text
         sub_data = [{"word": "Hello", "start": 0.0, "end": 0.5}]
         result = _modify_hook_text(sub_data, "One two three four")
         assert result[0]["word"] == "One"
@@ -1266,14 +1266,14 @@ class TestABVariants:
 
     def test_generate_variants_no_segments_file(self):
         """generate_variants retourne [] si pas de viral_segments.txt."""
-        from scripts.ab_variants import generate_variants
+        from scripts.postprod.ab_variants import generate_variants
         with tempfile.TemporaryDirectory() as tmpdir:
             result = generate_variants(tmpdir)
             assert result == []
 
     def test_generate_variants_no_caption_variants(self):
         """generate_variants retourne [] si aucun segment n'a caption_variants."""
-        from scripts.ab_variants import generate_variants
+        from scripts.postprod.ab_variants import generate_variants
         with tempfile.TemporaryDirectory() as tmpdir:
             vs = {"segments": [{"title": "Test", "start_time": 0, "end_time": 10}]}
             with open(os.path.join(tmpdir, "viral_segments.txt"), "w") as f:
@@ -1283,7 +1283,7 @@ class TestABVariants:
 
     def test_find_subtitle_json_by_prefix(self):
         """_find_subtitle_json trouve par prefixe d'index."""
-        from scripts.ab_variants import _find_subtitle_json
+        from scripts.postprod.ab_variants import _find_subtitle_json
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create a file matching the pattern
             test_file = os.path.join(tmpdir, "000_Some_Title_processed.json")
@@ -1299,7 +1299,7 @@ class TestABVariants:
 
 class TestGetAnimationTags:
     def test_pop_uses_fs_not_fscx(self):
-        from scripts.adjust_subtitles import _get_animation_tags
+        from scripts.editing.adjust_subtitles import _get_animation_tags
         tags = _get_animation_tags("pop", 24)
         assert "\\fs27" in tags
         assert "\\fs24" in tags
@@ -1307,7 +1307,7 @@ class TestGetAnimationTags:
         assert "fscy" not in tags
 
     def test_bounce_uses_fs_not_fscx(self):
-        from scripts.adjust_subtitles import _get_animation_tags
+        from scripts.editing.adjust_subtitles import _get_animation_tags
         tags = _get_animation_tags("bounce", 24)
         assert "\\fs28" in tags  # hl_size + 4
         assert "\\fs22" in tags  # hl_size - 2
@@ -1316,7 +1316,7 @@ class TestGetAnimationTags:
         assert "fscy" not in tags
 
     def test_fade_pop_uses_fs_not_fscx(self):
-        from scripts.adjust_subtitles import _get_animation_tags
+        from scripts.editing.adjust_subtitles import _get_animation_tags
         tags = _get_animation_tags("fade_pop", 20)
         assert "\\fs23" in tags
         assert "\\fs20" in tags
@@ -1324,11 +1324,11 @@ class TestGetAnimationTags:
         assert "fscx" not in tags
 
     def test_none_returns_empty(self):
-        from scripts.adjust_subtitles import _get_animation_tags
+        from scripts.editing.adjust_subtitles import _get_animation_tags
         assert _get_animation_tags("none", 24) == ""
 
     def test_unknown_returns_empty(self):
-        from scripts.adjust_subtitles import _get_animation_tags
+        from scripts.editing.adjust_subtitles import _get_animation_tags
         assert _get_animation_tags("unknown_anim", 24) == ""
 
 
@@ -1339,14 +1339,14 @@ class TestGetAnimationTags:
 
 class TestFaceStartSnap:
     def test_returns_start_time_for_missing_file(self):
-        from scripts.face_start_snap import snap_to_first_face
+        from scripts.vision.face_start_snap import snap_to_first_face
         result = snap_to_first_face("/nonexistent/video.mp4", 5.0)
         assert result == 5.0
 
     def test_cascade_params_are_strict(self):
         """Verify the source code uses stricter Haar params (minNeighbors>=6)."""
         import inspect
-        from scripts import face_start_snap
+        from scripts.vision import face_start_snap
         source = inspect.getsource(face_start_snap.snap_to_first_face)
         assert "minNeighbors=6" in source
         assert "minSize=(120, 120)" in source
@@ -1355,7 +1355,7 @@ class TestFaceStartSnap:
     def test_aspect_ratio_filter_present(self):
         """Verify aspect ratio filtering is in the source."""
         import inspect
-        from scripts import face_start_snap
+        from scripts.vision import face_start_snap
         source = inspect.getsource(face_start_snap.snap_to_first_face)
         assert "0.7" in source
         assert "1.4" in source

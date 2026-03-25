@@ -11,7 +11,7 @@ import numpy as np
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-from scripts.engagement_predictor import (
+from scripts.analysis.engagement_predictor import (
     extract_features,
     predict_engagement,
     predict_from_metadata,
@@ -122,7 +122,7 @@ class TestPredictEngagementFallback:
         features = [50.0] * len(FEATURE_NAMES)
 
         with patch.dict(sys.modules, {"xgboost": mock_xgb}):
-            with patch("scripts.engagement_predictor._get_model", return_value=mock_model):
+            with patch("scripts.analysis.engagement_predictor._get_model", return_value=mock_model):
                 result = predict_engagement(features, model_path)
 
         assert result <= 100.0
@@ -140,7 +140,7 @@ class TestPredictEngagementFallback:
         features = [50.0] * len(FEATURE_NAMES)
 
         with patch.dict(sys.modules, {"xgboost": mock_xgb}):
-            with patch("scripts.engagement_predictor._get_model", return_value=mock_model):
+            with patch("scripts.analysis.engagement_predictor._get_model", return_value=mock_model):
                 result = predict_engagement(features, model_path)
 
         assert result >= 0.0

@@ -6,8 +6,8 @@ import re
 import sys
 
 # Import scripts for direct processing
-import scripts.adjust_subtitles as adjust
-import scripts.burn_subtitles as burn
+import scripts.editing.adjust_subtitles as adjust
+import scripts.editing.burn_subtitles as burn
 import main_improved
 
 logger = logging.getLogger(__name__)

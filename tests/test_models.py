@@ -5,7 +5,7 @@ import dataclasses
 
 import pytest
 
-from scripts.models import Segment, _parse_time
+from scripts.core.models import Segment, _parse_time
 
 
 # ===========================================================================
